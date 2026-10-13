@@ -5,7 +5,7 @@ import os
 from datetime import date, datetime
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from airgem.core import FlightRequest
@@ -91,10 +91,18 @@ class SerpApiProvider:
         payload = self._fetch_json(params)
         _raise_api_error(payload)
         currency = str(payload.get("search_parameters", {}).get("currency", request.currency or "USD")).upper()
-        options = tuple(self._flight_option(item, currency) for item in _flight_groups(payload))
+        options = tuple(
+            self._flight_option(item, currency, outbound_date)
+            for item in _flight_groups(payload)
+        )
         return tuple(option for option in options if option is not None)
 
-    def _flight_option(self, item: dict[str, Any], currency: str) -> FlightOption | None:
+    def _flight_option(
+        self,
+        item: dict[str, Any],
+        currency: str,
+        outbound_date: date,
+    ) -> FlightOption | None:
         flights = item.get("flights")
         price = item.get("price")
         if not isinstance(flights, list) or not flights or not isinstance(price, (int, float)):
@@ -112,7 +120,11 @@ class SerpApiProvider:
             return None
 
         booking_token = item.get("booking_token")
-        booking_url = self._booking_url(booking_token) if isinstance(booking_token, str) else None
+        booking_url = (
+            self._booking_url(booking_token, origin, destination, outbound_date)
+            if isinstance(booking_token, str)
+            else None
+        )
         return FlightOption(
             provider=self.name,
             origin=origin,
@@ -126,12 +138,22 @@ class SerpApiProvider:
             booking_token=booking_token if isinstance(booking_token, str) else None,
         )
 
-    def _booking_url(self, booking_token: str) -> str | None:
+    def _booking_url(
+        self,
+        booking_token: str,
+        departure_id: str,
+        arrival_id: str,
+        outbound_date: date,
+    ) -> str | None:
         payload = self._fetch_json(
             {
                 "engine": "google_flights",
                 "api_key": self.api_key,
+                "type": "2",
                 "booking_token": booking_token,
+                "departure_id": departure_id,
+                "arrival_id": arrival_id,
+                "outbound_date": outbound_date.isoformat(),
             }
         )
         _raise_api_error(payload)
@@ -151,7 +173,7 @@ class SerpApiProvider:
         return min(candidates)[1] if candidates else None
 
     def _get_json(self, params: dict[str, str]) -> dict[str, Any]:
-        request = Request(f"{self.base_url}?{urlencode(params)}", method="GET")
+        request = Request(_request_url(self.base_url, params), method="GET")
         try:
             with urlopen(request, timeout=self.timeout) as response:
                 return json.load(response)
@@ -169,6 +191,13 @@ def _flight_groups(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(values, list):
             groups.extend(value for value in values if isinstance(value, dict))
     return groups
+
+
+def _request_url(base_url: str, params: dict[str, str]) -> str:
+    parts = urlsplit(base_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query.update(params)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 def _parse_datetime(value: Any) -> datetime:
@@ -189,4 +218,3 @@ def _require_route(request: FlightRequest) -> None:
     if request.departure_date is None:
         raise ValueError("departure_date required before search")
     # TODO: flexible dates; first slice requires exact departure/return dates.
-

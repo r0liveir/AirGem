@@ -3,6 +3,7 @@ from datetime import date, datetime
 
 from airgem.core import FlightRequest
 from airgem.search import SerpApiProvider
+from airgem.search.serpapi import _request_url
 
 
 def request_data(params: dict[str, str]) -> dict:
@@ -31,6 +32,17 @@ def request_data(params: dict[str, str]) -> dict:
 
 
 class TestSerpApi(unittest.TestCase):
+    def test_request_url_merges_existing_query(self) -> None:
+        url = _request_url(
+            "https://serpapi.com/search.json?engine=google_flights",
+            {"departure_id": "GRU", "arrival_id": "POA"},
+        )
+
+        self.assertEqual(url.count("?"), 1)
+        self.assertIn("engine=google_flights", url)
+        self.assertIn("departure_id=GRU", url)
+        self.assertIn("arrival_id=POA", url)
+
     def test_one_way_uses_deep_search_price_sort_and_booking_url(self) -> None:
         calls: list[dict[str, str]] = []
         provider = SerpApiProvider(api_key="test", fetch_json=lambda params: calls.append(params) or request_data(params))
@@ -47,6 +59,10 @@ class TestSerpApi(unittest.TestCase):
         self.assertEqual(calls[0]["deep_search"], "true")
         self.assertNotIn("hl", calls[0])
         self.assertNotIn("gl", calls[0])
+        self.assertEqual(calls[1]["departure_id"], "GRU")
+        self.assertEqual(calls[1]["arrival_id"], "POA")
+        self.assertEqual(calls[1]["outbound_date"], "2026-11-06")
+        self.assertEqual(calls[1]["type"], "2")
 
     def test_round_trip_runs_two_independent_one_way_searches(self) -> None:
         calls: list[dict[str, str]] = []
@@ -62,4 +78,3 @@ class TestSerpApi(unittest.TestCase):
         self.assertIn("work in progress", result.notes[0])
         searches = [call for call in calls if "booking_token" not in call]
         self.assertEqual([(call["departure_id"], call["arrival_id"]) for call in searches], [("GRU", "POA"), ("POA", "GRU")])
-

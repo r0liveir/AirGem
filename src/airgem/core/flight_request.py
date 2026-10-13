@@ -15,7 +15,7 @@ class FlightRequest:
     departure_date: date | None = None
     return_date: date | None = None
     max_price: float | None = None
-    currency: str | None = None
+    currency: str = "USD"
     max_stops: int | None = None
     sort_by_price: bool = False
 
@@ -56,11 +56,10 @@ class FlightRequest:
         if not isinstance(sort_by_price, bool):
             raise ValueError("sort_by_price must be boolean")
 
-        currency = raw.get("currency")
-        if currency is not None:
-            if not isinstance(currency, str) or not re.fullmatch(r"[A-Za-z]{3}", currency):
-                raise ValueError("currency must be a 3-letter code")
-            currency = currency.upper()
+        currency = raw.get("currency") or "USD"
+        if not isinstance(currency, str) or not re.fullmatch(r"[A-Za-z]{3}", currency):
+            raise ValueError("currency must be a 3-letter code")
+        currency = currency.upper()
 
         return cls(origin, destination, departure_date, return_date, max_price, currency, max_stops, sort_by_price)
 

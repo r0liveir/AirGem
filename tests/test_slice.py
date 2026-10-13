@@ -31,6 +31,7 @@ class TestFlightParsing(unittest.TestCase):
         result = parse_flight_request("cheap flights to Rio", FakeProvider('{"destination":"GIG"}'))
 
         self.assertEqual(result.destination, "GIG")
+        self.assertEqual(result.currency, "USD")
         self.assertEqual(result.missing, ["origin", "departure_date"])
 
     def test_schema_rejects_unknown_fields(self) -> None:
