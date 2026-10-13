@@ -1,5 +1,6 @@
 import unittest
-from datetime import datetime
+from dataclasses import replace
+from datetime import date, datetime
 
 from airgem.itinerary import build_itineraries
 from airgem.search import FlightOption, FlightSearchResult
@@ -79,3 +80,54 @@ class TestItinerary(unittest.TestCase):
         self.assertEqual(itinerary.price, 180)
         self.assertIsNone(itinerary.duration_minutes)
         self.assertTrue(itinerary.return_pending)
+
+    def test_expanded_native_round_trip_keeps_total_price(self) -> None:
+        result = FlightSearchResult(
+            outbound=(
+                replace(option("GRU", "POA", 8, 180), candidate_id="candidate-0"),
+            ),
+            inbound=(
+                replace(option("POA", "GRU", 18, 0), candidate_id="candidate-0/return-0"),
+            ),
+            round_trip=True,
+            price_is_total=True,
+        )
+
+        itinerary = build_itineraries(result)[0]
+
+        self.assertEqual(itinerary.price, 180)
+        self.assertEqual(itinerary.id, "candidate-0/return-0")
+        self.assertFalse(itinerary.estimated)
+        self.assertFalse(itinerary.return_pending)
+
+    def test_applies_small_hard_constraints(self) -> None:
+        result = FlightSearchResult(
+            outbound=(
+                option("GRU", "POA", 8, 100, stops=0),
+                option("GRU", "POA", 10, 90, stops=1),
+            )
+        )
+
+        itineraries = build_itineraries(
+            result,
+            max_stops=0,
+            departure_date=date(2026, 11, 6),
+        )
+
+        self.assertEqual([item.price for item in itineraries], [100])
+
+    def test_filters_wrong_calendar_date_for_both_legs(self) -> None:
+        result = FlightSearchResult(
+            outbound=(option("GRU", "POA", 8, 100),),
+            inbound=(option("POA", "GRU", 18, 80),),
+            round_trip=True,
+        )
+
+        self.assertEqual(
+            build_itineraries(
+                result,
+                departure_date=date(2026, 11, 7),
+                return_date=date(2026, 11, 8),
+            ),
+            (),
+        )

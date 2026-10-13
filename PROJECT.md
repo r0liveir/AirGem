@@ -138,12 +138,15 @@ from datetime import date
 from airgem.core import FlightRequest
 from airgem.search import SerpApiProvider
 
-result = SerpApiProvider().search(
+provider = SerpApiProvider()
+result = provider.search(
     FlightRequest("GRU", "POA", date(2026, 11, 6), date(2026, 11, 8))
 )
+# After selecting one returned candidate:
+expanded = provider.expand_round_trip(result.outbound[0].candidate_id)
 ```
 
-SerpAPI defaults: deep search, exact dates, price sorting. Round trips use native round-trip pricing; return-leg expansion is deferred until itinerary selection. Booking resolution is deferred until itinerary selection. Flexible dates are not supported yet. CLI is human-readable by default; use `--json` for machine-readable output.
+SerpAPI defaults: deep search, exact dates, price sorting. Round trips use native round-trip pricing. Search exposes opaque candidate IDs; `SerpApiProvider.expand_round_trip(candidate_id)` expands one selected return leg. Booking resolution is deferred until itinerary selection. Flexible dates are not supported yet. CLI is human-readable by default; use `--json` for machine-readable output.
 
 Run offline tests:
 
@@ -190,7 +193,8 @@ airgem/
 │   ├── core/
 │   │   ├── flight_request.py # Validated normalized request
 │   │   └── parse.py           # Natural language → request
-│   ├── itinerary.py            # Deterministic candidate pairing/ranking
+│   ├── itinerary.py            # Deterministic pairing and hard constraints
+│   ├── pareto.py               # Price/duration/stops candidate filtering
 │   └── search/
 │       ├── provider.py     # SerpAPI/FastFlights-neutral contract
 │       └── serpapi.py      # Google Flights SerpAPI adapter

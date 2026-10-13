@@ -19,6 +19,7 @@ class FlightOption:
     stops: int
     airline: str | None = None
     duration_minutes: int | None = None
+    candidate_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class FlightSearchResult:
     outbound: tuple[FlightOption, ...]
     inbound: tuple[FlightOption, ...] = ()
     round_trip: bool = False
+    price_is_total: bool = False
     notes: tuple[str, ...] = ()
 
 

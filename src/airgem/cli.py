@@ -18,7 +18,13 @@ def run(prompt: str, llm_provider: Any, search_provider: FlightSearchProvider) -
         missing = ", ".join(request.missing)
         raise ValueError(f"missing required flight fields: {missing}")
     result = search_provider.search(request)
-    itineraries = build_itineraries(result, max_price=request.max_price)
+    itineraries = build_itineraries(
+        result,
+        max_price=request.max_price,
+        max_stops=request.max_stops,
+        departure_date=request.departure_date,
+        return_date=request.return_date,
+    )
     return {
         "request": request.to_dict(),
         "itineraries": [itinerary_to_dict(item) for item in itineraries],
@@ -31,6 +37,7 @@ def _search_result_to_dict(result: FlightSearchResult) -> dict[str, Any]:
         "outbound": [_flight_option_to_dict(option) for option in result.outbound],
         "inbound": [_flight_option_to_dict(option) for option in result.inbound],
         "round_trip": result.round_trip,
+        "price_is_total": result.price_is_total,
         "notes": list(result.notes),
     }
 

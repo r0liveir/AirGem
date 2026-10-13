@@ -7,20 +7,23 @@ from airgem.search.serpapi import _request_url
 
 
 def request_data(params: dict[str, str]) -> dict:
+    outbound_date = params.get("outbound_date", "2026-11-08")
+    departure_id = params.get("departure_id", "POA")
+    arrival_id = params.get("arrival_id", "GRU")
     return {
         "search_parameters": {"currency": "BRL"},
         "best_flights": [
             {
                 "flights": [
                     {
-                        "departure_airport": {"id": params["departure_id"], "time": f"{params['outbound_date']} 08:00"},
-                        "arrival_airport": {"id": params["arrival_id"], "time": f"{params['outbound_date']} 10:00"},
+                        "departure_airport": {"id": departure_id, "time": f"{outbound_date} 08:00"},
+                        "arrival_airport": {"id": arrival_id, "time": f"{outbound_date} 10:00"},
                         "airline": "Test Air",
                     }
                 ],
                 "price": 100,
                 "total_duration": 120,
-                "booking_token": f"token-{params['outbound_date']}",
+                "departure_token": f"token-{outbound_date}",
             }
         ],
     }
@@ -71,3 +74,30 @@ class TestSerpApi(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["type"], "1")
         self.assertEqual(calls[0]["return_date"], "2026-11-08")
+        self.assertEqual(result.outbound[0].candidate_id, "candidate-0")
+        self.assertTrue(result.price_is_total)
+
+    def test_expands_only_selected_round_trip_candidate(self) -> None:
+        calls: list[dict[str, str]] = []
+
+        def fetch(params: dict[str, str]) -> dict:
+            calls.append(params)
+            return request_data(params)
+
+        provider = SerpApiProvider(api_key="test", fetch_json=fetch)
+        request = FlightRequest("GRU", "POA", date(2026, 11, 6), date(2026, 11, 8))
+        search = provider.search(request)
+
+        expanded = provider.expand_round_trip(search.outbound[0].candidate_id or "")
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1]["departure_token"], "token-2026-11-06")
+        self.assertEqual(expanded.outbound[0].candidate_id, "candidate-0")
+        self.assertEqual(expanded.inbound[0].candidate_id, "candidate-0/return-0")
+        self.assertTrue(expanded.price_is_total)
+
+    def test_rejects_unknown_round_trip_candidate(self) -> None:
+        provider = SerpApiProvider(api_key="test", fetch_json=lambda params: request_data(params))
+
+        with self.assertRaisesRegex(ValueError, "unknown round-trip candidate"):
+            provider.expand_round_trip("candidate-404")

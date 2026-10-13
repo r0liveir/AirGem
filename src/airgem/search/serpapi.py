@@ -34,11 +34,13 @@ class SerpApiProvider:
         self.deep_search = deep_search
         self.timeout = timeout
         self._fetch_json = fetch_json or self._get_json
+        self._round_trip_candidates: dict[str, tuple[FlightOption, str, FlightRequest]] = {}
         if not self.api_key:
             raise ValueError("SERPAPI_API_KEY is required for SerpApiProvider")
 
     def search(self, request: FlightRequest) -> FlightSearchResult:
         _require_route(request)
+        self._round_trip_candidates.clear()
         if request.return_date is not None:
             return self.search_round_trip(request)
         outbound = self.search_one_way(
@@ -53,6 +55,7 @@ class SerpApiProvider:
         _require_route(request)
         if request.return_date is None:
             raise ValueError("return_date required for round-trip search")
+        self._round_trip_candidates.clear()
         params = self._base_params(
             departure_id=request.origin,
             arrival_id=request.destination,
@@ -61,14 +64,37 @@ class SerpApiProvider:
             flight_type="1",
         )
         params["return_date"] = request.return_date.isoformat()
-        options = self._search_options(params, request)
-        # TODO: expand selected departure_token into return-leg details.
+        options = self._search_options(params, request, candidate_prefix="candidate")
         return FlightSearchResult(
             outbound=options,
             round_trip=True,
+            price_is_total=True,
             notes=(
-                "Native round-trip prices returned; return-leg details deferred until itinerary selection.",
+                "Native round-trip prices returned; select a candidate to expand return-leg details.",
             ),
+        )
+
+    def expand_round_trip(self, candidate_id: str) -> FlightSearchResult:
+        """Expand one native round-trip candidate into its return-leg options."""
+        try:
+            outbound, departure_token, request = self._round_trip_candidates[candidate_id]
+        except KeyError as error:
+            raise ValueError(f"unknown round-trip candidate: {candidate_id}") from error
+
+        params = {
+            "engine": "google_flights",
+            "api_key": self.api_key,
+            "departure_token": departure_token,
+        }
+        if request.currency:
+            params["currency"] = request.currency
+        inbound = self._search_options(params, request, candidate_prefix=f"{candidate_id}/return")
+        return FlightSearchResult(
+            outbound=(outbound,),
+            inbound=inbound,
+            round_trip=True,
+            price_is_total=True,
+            notes=(f"Expanded return leg for {candidate_id}.",),
         )
 
     def search_one_way(
@@ -120,14 +146,31 @@ class SerpApiProvider:
         self,
         params: dict[str, str],
         request: FlightRequest,
+        candidate_prefix: str | None = None,
     ) -> tuple[FlightOption, ...]:
         payload = self._fetch_json(params)
         _raise_api_error(payload)
         currency = str(payload.get("search_parameters", {}).get("currency", request.currency or "USD")).upper()
-        options = tuple(self._flight_option(item, currency) for item in _flight_groups(payload))
-        return tuple(option for option in options if option is not None)
+        options: list[FlightOption] = []
+        for index, item in enumerate(_flight_groups(payload)):
+            candidate_id = f"{candidate_prefix}-{index}" if candidate_prefix else None
+            option = self._flight_option(item, currency, candidate_id=candidate_id)
+            if option is None:
+                continue
+            options.append(option)
+            if candidate_prefix == "candidate":
+                token = item.get("departure_token")
+                if isinstance(token, str) and token:
+                    self._round_trip_candidates[option.candidate_id or ""] = (option, token, request)
+        return tuple(options)
 
-    def _flight_option(self, item: dict[str, Any], currency: str) -> FlightOption | None:
+    def _flight_option(
+        self,
+        item: dict[str, Any],
+        currency: str,
+        *,
+        candidate_id: str | None = None,
+    ) -> FlightOption | None:
         flights = item.get("flights")
         price = item.get("price")
         if not isinstance(flights, list) or not flights or not isinstance(price, (int, float)):
@@ -165,6 +208,7 @@ class SerpApiProvider:
             stops=max(0, len(flights) - 1),
             airline=", ".join(airlines) or None,
             duration_minutes=duration_minutes,
+            candidate_id=candidate_id,
         )
 
     def _get_json(self, params: dict[str, str]) -> dict[str, Any]:
