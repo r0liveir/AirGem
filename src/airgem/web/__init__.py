@@ -175,7 +175,7 @@ def _workspace_fragment(session_id: str, payload: dict[str, object]) -> str:
             <input id="follow-up-prompt" name="prompt" required placeholder="Try ‘show the next outbound’ or ‘prefer nonstop flights’">
             <button type="submit">Ask</button>
           </div>
-          <span id="follow-up-searching" class="busy muted">AirGem is checking the options…</span>
+          <span id="follow-up-searching" class="busy" role="status"><span class="spinner" aria-hidden="true"></span> AirGem is checking the options…</span>
         </form>
       </section>
     </div>

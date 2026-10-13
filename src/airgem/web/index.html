@@ -6,57 +6,154 @@
   <title>AirGem · flight copilot</title>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <style>
-    :root { color-scheme: light; --ink: #18212f; --muted: #697386; --line: #dfe4ec; --blue: #2457d6; --soft: #f6f8fb; --green: #16803c; }
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #68738a;
+      --line: #dce3ef;
+      --surface: rgba(255, 255, 255, .86);
+      --surface-solid: #ffffff;
+      --surface-floating: #ffffff;
+      --soft: #f4f7fc;
+      --soft-blue: #edf3ff;
+      --blue: #365fe8;
+      --cyan: #22b8c9;
+      --green: #16803c;
+      --yellow: #f5b942;
+      --glow-a: rgba(63, 99, 232, .13);
+      --glow-b: rgba(34, 184, 201, .12);
+      --shadow: 0 1.25rem 3rem rgba(37, 55, 92, .09);
+      --shadow-small: 0 .45rem 1.25rem rgba(37, 55, 92, .08);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --ink: #f1efff;
+      --muted: #aaa5ce;
+      --line: #373268;
+      --surface: rgba(28, 26, 73, .9);
+      --surface-solid: #1c1a49;
+      --surface-floating: #0b0a20;
+      --soft: #100e31;
+      --soft-blue: #292665;
+      --blue: #9589ff;
+      --cyan: #b4a4ff;
+      --green: #75d6ad;
+      --yellow: #e7bd75;
+      --glow-a: rgba(84, 72, 190, .2);
+      --glow-b: rgba(110, 88, 230, .12);
+      --shadow: 0 1.25rem 3rem rgba(0, 0, 0, .3);
+      --shadow-small: 0 .45rem 1.25rem rgba(0, 0, 0, .24);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --ink: #f1efff;
+        --muted: #aaa5ce;
+        --line: #373268;
+        --surface: rgba(28, 26, 73, .9);
+        --surface-solid: #1c1a49;
+        --surface-floating: #0b0a20;
+        --soft: #100e31;
+        --soft-blue: #292665;
+        --blue: #9589ff;
+        --cyan: #b4a4ff;
+        --green: #75d6ad;
+        --yellow: #e7bd75;
+        --glow-a: rgba(84, 72, 190, .2);
+        --glow-b: rgba(110, 88, 230, .12);
+        --shadow: 0 1.25rem 3rem rgba(0, 0, 0, .3);
+        --shadow-small: 0 .45rem 1.25rem rgba(0, 0, 0, .24);
+      }
+    }
     * { box-sizing: border-box; }
-    body { background: var(--soft); color: var(--ink); font: 16px/1.45 system-ui, sans-serif; margin: 0; }
-    main { margin: 0 auto; max-width: 68rem; padding: 2rem 1rem 4rem; }
-    header { margin-bottom: 1.5rem; }
+    body {
+      background:
+        radial-gradient(circle at 8% 0%, var(--glow-a), transparent 28rem),
+        radial-gradient(circle at 96% 12%, var(--glow-b), transparent 24rem),
+        var(--soft);
+      color: var(--ink);
+      font: 16px/1.45 system-ui, sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      transition: background-color .25s ease, color .25s ease;
+    }
+    main { margin: 0 auto; max-width: 70rem; padding: 2.5rem 1.25rem 5rem; }
+    header { align-items: center; display: flex; justify-content: space-between; gap: 2rem; margin-bottom: 2rem; }
     h1, h2, h3, p { margin-top: 0; }
-    h1 { font-size: 2rem; margin-bottom: .25rem; }
-    h2 { font-size: 1.35rem; margin-bottom: .3rem; }
+    h1 { font-size: clamp(2.2rem, 4vw, 3rem); letter-spacing: -.055em; line-height: 1; margin-bottom: .45rem; }
+    h2 { font-size: 1.45rem; letter-spacing: -.02em; margin-bottom: .3rem; }
     h3 { font-size: 1rem; margin-bottom: .6rem; }
     .muted { color: var(--muted); }
-    .panel, .flight, .facts { background: white; border: 1px solid var(--line); border-radius: .8rem; }
-    .panel { padding: 1rem; }
-    .search-grid { display: grid; gap: .75rem; grid-template-columns: 12rem 1fr auto; align-items: end; }
+    header > div:first-child > .muted { font-size: 1rem; max-width: 36rem; }
+    .brand-lockup { align-items: center; display: flex; gap: .7rem; }
+    .brand-lockup h1 { margin-bottom: 0; }
+    .brand-mark { align-items: center; background: var(--blue); border-radius: .45rem; color: white; display: inline-flex; height: 1.55rem; justify-content: center; letter-spacing: 0; width: 1.55rem; }
+    .header-actions { align-items: center; display: flex; flex-wrap: wrap; gap: .6rem; justify-content: flex-end; }
+    .theme-toggle { align-items: center; border: 1px solid var(--line); border-radius: 999px; display: inline-flex; font-size: .78rem; gap: .4rem; padding: .42rem .7rem; }
+    .theme-toggle { background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
+    .theme-toggle:hover { border-color: var(--blue); color: var(--blue); }
+    .panel, .flight, .facts { background: var(--surface); border: 1px solid var(--line); border-radius: 1.1rem; box-shadow: var(--shadow-small); }
+    .panel { padding: 1.35rem; }
+    .search-panel { background: var(--surface-floating); border-color: color-mix(in srgb, var(--blue) 22%, var(--line)); overflow: hidden; position: relative; }
+    .search-panel::before { background: linear-gradient(90deg, var(--blue), var(--cyan)); content: ""; height: .25rem; inset: 0 0 auto; position: absolute; }
+    .panel-kicker { color: var(--muted); font-size: .78rem; font-weight: 750; letter-spacing: .08em; margin-bottom: 1rem; text-transform: uppercase; }
+    .search-grid { display: grid; gap: .9rem; grid-template-columns: 12rem minmax(0, 1fr) auto; align-items: end; }
     label { color: var(--muted); display: block; font-size: .85rem; margin-bottom: .25rem; }
-    textarea, input, select { border: 1px solid #c8d0dc; border-radius: .45rem; font: inherit; padding: .65rem .7rem; width: 100%; }
+    textarea, input, select { background: var(--surface-solid); border: 1px solid var(--line); border-radius: .65rem; color: var(--ink); font: inherit; outline: none; padding: .7rem .75rem; transition: border-color .2s ease, box-shadow .2s ease, background-color .25s ease; width: 100%; }
+    textarea:focus, input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 .22rem color-mix(in srgb, var(--blue) 17%, transparent); }
     textarea { min-height: 4.4rem; resize: vertical; }
-    input[type=file] { background: white; font-size: .9rem; }
-    button { background: var(--blue); border: 0; border-radius: .45rem; color: white; cursor: pointer; font: inherit; padding: .62rem .85rem; }
-    button.secondary { background: white; border: 1px solid #b9c4d5; color: var(--ink); }
-    button:hover { filter: brightness(.95); }
-    .calendar-row { display: grid; gap: .75rem; grid-template-columns: 1fr 9rem; margin-top: .75rem; }
-    .hint { font-size: .82rem; margin: .3rem 0 0; }
-    .busy { display: none; }
-    .htmx-request.busy, .htmx-request .busy { display: inline; }
-    .workspace { margin-top: 1.25rem; }
-    .chat { display: grid; gap: .65rem; margin-bottom: 1.25rem; }
-    .message { border-radius: .7rem; max-width: 85%; padding: .7rem .85rem; white-space: pre-wrap; }
-    .user-message { background: #e5edff; justify-self: end; }
-    .assistant-message { background: white; border: 1px solid var(--line); justify-self: start; }
+    input[type=file] { font-size: .9rem; }
+    button { background: var(--blue); border: 0; border-radius: .65rem; box-shadow: 0 .45rem 1rem color-mix(in srgb, var(--blue) 24%, transparent); color: white; cursor: pointer; font: inherit; font-weight: 700; padding: .72rem .95rem; transition: filter .2s ease, transform .2s ease, box-shadow .2s ease; }
+    button:hover { box-shadow: 0 .65rem 1.3rem color-mix(in srgb, var(--blue) 32%, transparent); filter: brightness(1.06); transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    button.secondary { background: var(--surface-solid); border: 1px solid var(--line); box-shadow: none; color: var(--ink); }
+    button.secondary:hover { border-color: var(--blue); color: var(--blue); }
+    .search-button { align-items: center; display: inline-flex; gap: .55rem; white-space: nowrap; }
+    .button-icon { font-size: 1.15rem; line-height: 1; }
+    .calendar-row { border-top: 1px solid var(--line); display: grid; gap: .9rem; grid-template-columns: 1fr 9rem; margin-top: 1.15rem; padding-top: 1.05rem; }
+    .hint { font-size: .82rem; margin: .4rem 0 0; }
+    .busy { align-items: center; color: var(--blue); display: none; font-size: .85rem; font-weight: 650; gap: .5rem; margin-top: .85rem; }
+    .htmx-request.busy, .htmx-request .busy { display: inline-flex; }
+    .spinner { animation: spin .8s linear infinite; border: 2px solid color-mix(in srgb, var(--blue) 22%, transparent); border-radius: 50%; border-top-color: var(--blue); height: .95rem; width: .95rem; }
+    .htmx-request button[type="submit"] { cursor: wait; opacity: .78; }
+    .workspace { margin-top: 1.5rem; }
+    .chat { display: grid; gap: .7rem; margin-bottom: 1.5rem; }
+    .message { animation: rise-in .4s ease both; border-radius: .9rem; max-width: 85%; padding: .75rem .95rem; white-space: pre-wrap; }
+    .user-message { background: var(--soft-blue); border-bottom-right-radius: .25rem; justify-self: end; }
+    .assistant-message { background: var(--surface-solid); border: 1px solid var(--line); border-bottom-left-radius: .25rem; justify-self: start; }
     .message-label { color: var(--muted); display: block; font-size: .75rem; margin-bottom: .15rem; }
-    .results-header { align-items: baseline; display: flex; justify-content: space-between; gap: 1rem; }
+    .results-header { align-items: baseline; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding-bottom: .8rem; }
     .cards { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
-    .flight { padding: 1rem; }
-    .flight.selected { border: 2px solid var(--green); padding: calc(1rem - 1px); }
+    .flight { animation: rise-in .45s ease both; background: var(--surface-floating); padding: 1.1rem; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+    .flight:nth-child(2) { animation-delay: .06s; }
+    .flight:nth-child(3) { animation-delay: .12s; }
+    .flight:hover { border-color: color-mix(in srgb, var(--blue) 45%, var(--line)); box-shadow: var(--shadow); transform: translateY(-2px); }
+    .flight.selected { border: 2px solid var(--green); padding: calc(1.1rem - 1px); }
     .flight-title { align-items: start; display: flex; justify-content: space-between; gap: .75rem; }
     .flight-title strong { font-size: 1.05rem; }
-    .badge { background: #e4f5e9; border-radius: 999px; color: var(--green); font-size: .75rem; padding: .2rem .5rem; white-space: nowrap; }
-    .price { font-size: 1.25rem; font-weight: 700; margin: .65rem 0; }
+    .badge { background: color-mix(in srgb, var(--green) 13%, transparent); border-radius: 999px; color: var(--green); font-size: .75rem; font-weight: 700; padding: .2rem .5rem; white-space: nowrap; }
+    .price { color: var(--blue); font-size: 1.35rem; font-weight: 800; letter-spacing: -.025em; margin: .65rem 0; }
     .leg { border-top: 1px solid var(--line); margin-top: .65rem; padding-top: .65rem; }
     .leg strong { display: block; }
     .flight-actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .8rem; }
     .flight-actions button { font-size: .9rem; }
-    .facts { background: #fffdf0; border-color: #ead98b; margin-top: 1rem; padding: 1rem; }
+    .facts { background: color-mix(in srgb, var(--yellow) 10%, var(--surface-solid)); border-color: color-mix(in srgb, var(--yellow) 45%, var(--line)); margin-top: 1rem; padding: 1rem; }
     .facts ul { margin: 0; padding-left: 1.2rem; }
     .notes { color: var(--muted); margin-top: 1rem; }
-    .error { background: #fff1f1; border: 1px solid #e0aaaa; border-radius: .6rem; color: #8a1c1c; margin-top: 1rem; padding: .8rem 1rem; }
+    .error { background: color-mix(in srgb, #e05252 10%, var(--surface-solid)); border: 1px solid color-mix(in srgb, #e05252 50%, var(--line)); border-radius: .7rem; color: #b32939; margin-top: 1rem; padding: .8rem 1rem; }
     .follow-up { margin-top: 1.25rem; }
     .follow-up-row { display: flex; gap: .5rem; }
     .follow-up-row input { flex: 1; }
     .empty { color: var(--muted); padding: 1rem 0; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes rise-in { from { opacity: 0; transform: translateY(.5rem); } to { opacity: 1; transform: translateY(0); } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
     @media (max-width: 42rem) {
+      main { padding-top: 1.5rem; }
+      header { flex-direction: column; }
+      .header-actions { justify-content: flex-start; }
       .search-grid, .calendar-row { grid-template-columns: 1fr; }
       .message { max-width: 100%; }
       .follow-up-row { align-items: stretch; flex-direction: column; }
@@ -66,12 +163,21 @@
 <body>
   <main>
     <header>
-      <h1>AirGem</h1>
-      <p class="muted">A local flight copilot. Ask for a search, then refine it in plain language.</p>
+      <div>
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">✦</span>
+          <h1>AirGem</h1>
+        </div>
+        <p class="muted">Search around your real calendar, then refine the options in plain language.</p>
+      </div>
+      <div class="header-actions">
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false">☾ Dark mode</button>
+      </div>
     </header>
 
-    <section class="panel">
-      <form hx-post="/ui/search" hx-target="#workspace" hx-swap="innerHTML" hx-encoding="multipart/form-data" hx-indicator="#searching">
+    <section class="panel search-panel">
+      <div class="panel-kicker">Start with a flight idea</div>
+      <form class="search-form" hx-post="/ui/search" hx-target="#workspace" hx-swap="innerHTML" hx-encoding="multipart/form-data" hx-indicator="#searching">
         <div class="search-grid">
           <div>
             <label for="provider">LLM provider</label>
@@ -84,7 +190,7 @@
             <label for="prompt">What are you looking for?</label>
             <textarea id="prompt" name="prompt" required placeholder="Find cheap flights from GRU to POA on 2027-01-01, returning 2027-01-08"></textarea>
           </div>
-          <button type="submit">Search flights</button>
+          <button class="search-button" type="submit"><span>Search flights</span><span class="button-icon" aria-hidden="true">↗</span></button>
         </div>
         <div class="calendar-row">
           <div>
@@ -97,11 +203,30 @@
             <input id="buffer_minutes" name="buffer_minutes" type="number" min="0" value="60">
           </div>
         </div>
-        <span id="searching" class="busy muted">AirGem is checking flights…</span>
+        <span id="searching" class="busy" role="status"><span class="spinner" aria-hidden="true"></span> AirGem is comparing flight options…</span>
       </form>
     </section>
 
     <section id="workspace" aria-live="polite"></section>
   </main>
+  <script>
+    const themeToggle = document.querySelector("#theme-toggle");
+    const savedTheme = localStorage.getItem("airgem-theme");
+    if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+
+    function updateThemeButton() {
+      const dark = document.documentElement.dataset.theme === "dark";
+      themeToggle.textContent = dark ? "☀ Light mode" : "☾ Dark mode";
+      themeToggle.setAttribute("aria-pressed", String(dark));
+    }
+
+    updateThemeButton();
+    themeToggle.addEventListener("click", () => {
+      const dark = document.documentElement.dataset.theme !== "dark";
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      localStorage.setItem("airgem-theme", dark ? "dark" : "light");
+      updateThemeButton();
+    });
+  </script>
 </body>
 </html>
