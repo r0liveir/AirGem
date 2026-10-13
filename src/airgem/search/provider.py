@@ -18,11 +18,12 @@ class FlightOption:
     currency: str
     stops: int
     airline: str | None = None
+    duration_minutes: int | None = None
 
 
 @dataclass(frozen=True)
 class FlightSearchResult:
-    """Separate legs prevent pretending independently searched flights are paired."""
+    """Search candidates plus optional return-leg candidates."""
 
     outbound: tuple[FlightOption, ...]
     inbound: tuple[FlightOption, ...] = ()

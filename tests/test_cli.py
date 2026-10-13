@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime
 
-from airgem.cli import run
+from airgem.cli import _format_human, run
 from airgem.search import FlightOption, FlightSearchResult
 
 
@@ -44,6 +44,11 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result["request"]["departure_date"], "2026-11-06")
         self.assertEqual(result["outbound"][0]["airline"], "Test Air")
         self.assertNotIn("booking_url", result["outbound"][0])
+        self.assertEqual(result["itineraries"][0]["price"], 100)
+
+        output = _format_human(result)
+        self.assertIn("GRU → POA", output)
+        self.assertIn("Test Air · USD 100.00 · nonstop · 2h 00m", output)
 
     def test_run_rejects_incomplete_request_before_search(self) -> None:
         class MissingLLM(FakeLLM):

@@ -19,6 +19,7 @@ def request_data(params: dict[str, str]) -> dict:
                     }
                 ],
                 "price": 100,
+                "total_duration": 120,
                 "booking_token": f"token-{params['outbound_date']}",
             }
         ],
@@ -48,6 +49,7 @@ class TestSerpApi(unittest.TestCase):
         option = result.outbound[0]
         self.assertEqual(option.departure, datetime(2026, 11, 6, 8))
         self.assertEqual(option.airline, "Test Air")
+        self.assertEqual(option.duration_minutes, 120)
         self.assertEqual(calls[0]["type"], "2")
         self.assertEqual(calls[0]["sort_by"], "2")
         self.assertEqual(calls[0]["deep_search"], "true")
@@ -55,7 +57,7 @@ class TestSerpApi(unittest.TestCase):
         self.assertNotIn("gl", calls[0])
         self.assertEqual(len(calls), 1)
 
-    def test_round_trip_runs_two_independent_one_way_searches(self) -> None:
+    def test_round_trip_uses_native_search(self) -> None:
         calls: list[dict[str, str]] = []
         provider = SerpApiProvider(api_key="test", fetch_json=lambda params: calls.append(params) or request_data(params))
         request = FlightRequest("GRU", "POA", date(2026, 11, 6), date(2026, 11, 8))
@@ -64,8 +66,8 @@ class TestSerpApi(unittest.TestCase):
 
         self.assertTrue(result.round_trip)
         self.assertEqual(len(result.outbound), 1)
-        self.assertEqual(len(result.inbound), 1)
-        self.assertEqual(result.inbound[0].origin, "POA")
-        self.assertIn("work in progress", result.notes[0])
-        searches = [call for call in calls if "booking_token" not in call]
-        self.assertEqual([(call["departure_id"], call["arrival_id"]) for call in searches], [("GRU", "POA"), ("POA", "GRU")])
+        self.assertEqual(result.inbound, ())
+        self.assertIn("Native round-trip", result.notes[0])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["type"], "1")
+        self.assertEqual(calls[0]["return_date"], "2026-11-08")

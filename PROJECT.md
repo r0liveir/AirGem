@@ -126,6 +126,8 @@ Current slice parses intent, then searches exact-date flights through SerpAPI:
 ```bash
 uv run airgem "Need cheap travel from GRU to POA on 2026-11-06, returning 2026-11-08"
 uv run airgem --provider openrouter "Find the cheapest nonstop flight from GRU to POA"
+# Machine-readable output:
+uv run airgem --json "Find cheap flights from GRU to POA on 2026-11-06"
 ```
 
 Search from Python:
@@ -141,7 +143,7 @@ result = SerpApiProvider().search(
 )
 ```
 
-SerpAPI defaults: deep search, exact dates, price sorting. Round trips run two independent one-way searches; native round-trip pairing is work in progress. Booking resolution is deferred until itinerary selection. Flexible dates are not supported yet.
+SerpAPI defaults: deep search, exact dates, price sorting. Round trips use native round-trip pricing; return-leg expansion is deferred until itinerary selection. Booking resolution is deferred until itinerary selection. Flexible dates are not supported yet. CLI is human-readable by default; use `--json` for machine-readable output.
 
 Run offline tests:
 
@@ -188,6 +190,7 @@ airgem/
 │   ├── core/
 │   │   ├── flight_request.py # Validated normalized request
 │   │   └── parse.py           # Natural language → request
+│   ├── itinerary.py            # Deterministic candidate pairing/ranking
 │   └── search/
 │       ├── provider.py     # SerpAPI/FastFlights-neutral contract
 │       └── serpapi.py      # Google Flights SerpAPI adapter

@@ -39,27 +39,36 @@ class SerpApiProvider:
 
     def search(self, request: FlightRequest) -> FlightSearchResult:
         _require_route(request)
+        if request.return_date is not None:
+            return self.search_round_trip(request)
         outbound = self.search_one_way(
             departure_id=request.origin,
             arrival_id=request.destination,
             outbound_date=request.departure_date,
             request=request,
         )
-        if request.return_date is None:
-            return FlightSearchResult(outbound=outbound)
+        return FlightSearchResult(outbound=outbound)
 
-        # TODO: native round-trip search; independent legs intentionally stay unpaired.
-        inbound = self.search_one_way(
-            departure_id=request.destination,
-            arrival_id=request.origin,
-            outbound_date=request.return_date,
+    def search_round_trip(self, request: FlightRequest) -> FlightSearchResult:
+        _require_route(request)
+        if request.return_date is None:
+            raise ValueError("return_date required for round-trip search")
+        params = self._base_params(
+            departure_id=request.origin,
+            arrival_id=request.destination,
+            outbound_date=request.departure_date,
             request=request,
+            flight_type="1",
         )
+        params["return_date"] = request.return_date.isoformat()
+        options = self._search_options(params, request)
+        # TODO: expand selected departure_token into return-leg details.
         return FlightSearchResult(
-            outbound=outbound,
-            inbound=inbound,
+            outbound=options,
             round_trip=True,
-            notes=("Round-trip pairing is work in progress; outbound/inbound options are independent.",),
+            notes=(
+                "Native round-trip prices returned; return-leg details deferred until itinerary selection.",
+            ),
         )
 
     def search_one_way(
@@ -71,10 +80,28 @@ class SerpApiProvider:
         request: FlightRequest,
     ) -> tuple[FlightOption, ...]:
         # TODO: support multiple airport results when request schema supports airport lists.
+        params = self._base_params(
+            departure_id=departure_id,
+            arrival_id=arrival_id,
+            outbound_date=outbound_date,
+            request=request,
+            flight_type="2",
+        )
+        return self._search_options(params, request)
+
+    def _base_params(
+        self,
+        *,
+        departure_id: str,
+        arrival_id: str,
+        outbound_date: date,
+        request: FlightRequest,
+        flight_type: str,
+    ) -> dict[str, str]:
         params = {
             "engine": "google_flights",
             "api_key": self.api_key,
-            "type": "2",
+            "type": flight_type,
             "departure_id": departure_id,
             "arrival_id": arrival_id,
             "outbound_date": outbound_date.isoformat(),
@@ -87,7 +114,13 @@ class SerpApiProvider:
             params["max_price"] = str(request.max_price)
         if request.max_stops is not None:
             params["stops"] = str(request.max_stops + 1)
+        return params
 
+    def _search_options(
+        self,
+        params: dict[str, str],
+        request: FlightRequest,
+    ) -> tuple[FlightOption, ...]:
         payload = self._fetch_json(params)
         _raise_api_error(payload)
         currency = str(payload.get("search_parameters", {}).get("currency", request.currency or "USD")).upper()
@@ -118,6 +151,9 @@ class SerpApiProvider:
                 if isinstance(flight, dict) and flight.get("airline")
             )
         )
+        duration_minutes = item.get("total_duration")
+        if isinstance(duration_minutes, bool) or not isinstance(duration_minutes, int) or duration_minutes < 0:
+            duration_minutes = None
         return FlightOption(
             provider=self.name,
             origin=origin,
@@ -128,6 +164,7 @@ class SerpApiProvider:
             currency=currency,
             stops=max(0, len(flights) - 1),
             airline=", ".join(airlines) or None,
+            duration_minutes=duration_minutes,
         )
 
     def _get_json(self, params: dict[str, str]) -> dict[str, Any]:
