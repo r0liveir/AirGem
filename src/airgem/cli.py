@@ -6,28 +6,56 @@ import logging
 import os
 import sys
 from dataclasses import asdict
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from airgem.agent import FlightAgent
+from airgem.calendar import BusyInterval, load_ics
 from airgem.core import parse_flight_request
 from airgem.itinerary import itinerary_to_dict
 from airgem.llm import OllamaProvider, OpenRouterProvider
 from airgem.search import FlightSearchProvider, FlightSearchResult, SerpApiProvider
 
 
-def run(prompt: str, llm_provider: Any, search_provider: FlightSearchProvider) -> dict[str, Any]:
+def run(
+    prompt: str,
+    llm_provider: Any,
+    search_provider: FlightSearchProvider,
+    *,
+    busy_intervals: tuple[BusyInterval, ...] = (),
+    buffer_minutes: int = 0,
+    calendar_path: str | None = None,
+) -> dict[str, Any]:
     request = parse_flight_request(prompt, llm_provider)
     if request.missing:
         missing = ", ".join(request.missing)
         raise ValueError(f"missing required flight fields: {missing}")
-    agent_result = FlightAgent(llm_provider, search_provider).run(prompt, request)
+    if calendar_path:
+        calendar_end_date = request.return_date or request.departure_date
+        busy_intervals = load_ics(
+            calendar_path,
+            start=datetime.combine(request.departure_date - timedelta(days=1), time.min),
+            end=datetime.combine(calendar_end_date + timedelta(days=2), time.min),
+        )
+    agent_result = FlightAgent(llm_provider, search_provider).run(
+        prompt,
+        request,
+        busy_intervals=busy_intervals,
+        buffer_minutes=buffer_minutes,
+    )
+    notes = list(agent_result.search_result.notes + agent_result.notes)
+    if busy_intervals:
+        notes.append(
+            f"Applied {len(busy_intervals)} calendar event(s) with a "
+            f"{buffer_minutes}-minute travel buffer before Pareto filtering."
+        )
     return {
         "request": request.to_dict(),
         "itineraries": [itinerary_to_dict(item) for item in agent_result.itineraries],
         "selected": itinerary_to_dict(agent_result.selected) if agent_result.selected else None,
         "agent_state": agent_result.state.value,
         **_search_result_to_dict(agent_result.search_result),
-        "notes": list(agent_result.search_result.notes + agent_result.notes),
+        "notes": notes,
     }
 
 
@@ -110,6 +138,13 @@ def main() -> None:
     )
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
     parser.add_argument("--debug", action="store_true", help="print agent decision trace")
+    parser.add_argument("--calendar", help="path to a local .ics calendar export")
+    parser.add_argument(
+        "--buffer-minutes",
+        type=int,
+        default=60,
+        help="free time required before departure and after arrival when using --calendar",
+    )
     args = parser.parse_args()
     if args.debug:
         logging.basicConfig(
@@ -120,9 +155,17 @@ def main() -> None:
         )
 
     try:
+        if args.buffer_minutes < 0:
+            raise ValueError("--buffer-minutes must be non-negative")
         llm_provider = OllamaProvider() if args.llm_provider == "ollama" else OpenRouterProvider()
         search_provider = SerpApiProvider()
-        payload = run(args.prompt, llm_provider, search_provider)
+        payload = run(
+            args.prompt,
+            llm_provider,
+            search_provider,
+            buffer_minutes=args.buffer_minutes,
+            calendar_path=args.calendar,
+        )
         print(json.dumps(payload, indent=2) if args.json else _format_human(payload))
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))

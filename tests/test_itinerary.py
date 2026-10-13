@@ -2,6 +2,7 @@ import unittest
 from dataclasses import replace
 from datetime import date, datetime
 
+from airgem.calendar import BusyInterval
 from airgem.itinerary import build_itineraries
 from airgem.search import FlightOption, FlightSearchResult
 
@@ -131,3 +132,21 @@ class TestItinerary(unittest.TestCase):
             ),
             (),
         )
+
+    def test_filters_calendar_conflicts_before_pareto(self) -> None:
+        result = FlightSearchResult(
+            outbound=(
+                option("GRU", "POA", 8, 50),
+                option("GRU", "POA", 12, 100),
+            )
+        )
+
+        itineraries = build_itineraries(
+            result,
+            busy_intervals=(
+                BusyInterval(datetime(2026, 11, 6, 7), datetime(2026, 11, 6, 9)),
+            ),
+            buffer_minutes=60,
+        )
+
+        self.assertEqual([item.price for item in itineraries], [100])

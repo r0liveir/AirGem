@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any
 
+from airgem.calendar import BusyInterval
 from airgem.pareto import pareto_front
 from airgem.search import FlightOption, FlightSearchResult
 
@@ -28,7 +29,11 @@ def build_itineraries(
     max_stops: int | None = None,
     departure_date: date | None = None,
     return_date: date | None = None,
+    busy_intervals: tuple[BusyInterval, ...] = (),
+    buffer_minutes: int = 0,
 ) -> tuple[Itinerary, ...]:
+    if buffer_minutes < 0:
+        raise ValueError("buffer_minutes must be non-negative")
     if result.round_trip and result.inbound:
         itineraries = (
             Itinerary(
@@ -45,6 +50,8 @@ def build_itineraries(
             for inbound_index, inbound in enumerate(result.inbound)
             if _fits(outbound, departure_date, max_stops)
             and _fits(inbound, return_date, max_stops)
+            and _available(outbound, busy_intervals, buffer_minutes)
+            and _available(inbound, busy_intervals, buffer_minutes)
             and outbound.currency == inbound.currency
             and _can_pair(outbound, inbound)
         )
@@ -62,6 +69,7 @@ def build_itineraries(
             )
             for index, option in enumerate(result.outbound)
             if _fits(option, departure_date, max_stops)
+            and _available(option, busy_intervals, buffer_minutes)
         )
     else:
         itineraries = tuple(
@@ -76,6 +84,7 @@ def build_itineraries(
             )
             for index, option in enumerate(result.outbound)
             if _fits(option, departure_date, max_stops)
+            and _available(option, busy_intervals, buffer_minutes)
         )
 
     filtered = (
@@ -115,6 +124,27 @@ def _fits(option: FlightOption, expected_date: date | None, max_stops: int | Non
         (expected_date is None or option.departure.date() == expected_date)
         and (max_stops is None or option.stops <= max_stops)
     )
+
+
+def _available(
+    option: FlightOption,
+    busy_intervals: tuple[BusyInterval, ...],
+    buffer_minutes: int,
+) -> bool:
+    if not busy_intervals:
+        return True
+    buffer = timedelta(minutes=buffer_minutes)
+    travel_start = option.departure - buffer
+    travel_end = option.arrival + buffer
+    return not any(_overlaps(travel_start, travel_end, busy) for busy in busy_intervals)
+
+
+def _overlaps(start: datetime, end: datetime, busy: BusyInterval) -> bool:
+    try:
+        return busy.start < end and busy.end > start
+    except TypeError:
+        # ponytail: SerpApi/ICS timezone normalization belongs in a future timezone layer.
+        return busy.start.replace(tzinfo=None) < end.replace(tzinfo=None) and busy.end.replace(tzinfo=None) > start.replace(tzinfo=None)
 
 
 def _metrics(itinerary: Itinerary) -> tuple[float, ...]:

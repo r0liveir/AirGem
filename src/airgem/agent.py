@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from airgem.calendar import BusyInterval
 from airgem.core import FlightRequest
 from airgem.itinerary import Itinerary, build_itineraries, itinerary_to_dict
 from airgem.llm import LLMProvider
@@ -43,7 +44,14 @@ class FlightAgent:
         self._turns = 0
         self._selection_notes: list[str] = []
 
-    def run(self, prompt: str, request: FlightRequest) -> AgentResult:
+    def run(
+        self,
+        prompt: str,
+        request: FlightRequest,
+        *,
+        busy_intervals: tuple[BusyInterval, ...] = (),
+        buffer_minutes: int = 0,
+    ) -> AgentResult:
         self._set_state(AgentState.SEARCHING)
         self._turns = 0
         self._selection_notes = []
@@ -54,7 +62,7 @@ class FlightAgent:
             len(result.outbound),
             len(result.inbound),
         )
-        itineraries = _build(result, request)
+        itineraries = _build(result, request, busy_intervals, buffer_minutes)
         logger.debug("Pareto candidates=%d ids=%s", len(itineraries), [item.id for item in itineraries])
         if not itineraries:
             self._set_state(AgentState.COMPLETE)
@@ -72,7 +80,7 @@ class FlightAgent:
         self._set_state(AgentState.EXPANDING_RETURN)
         logger.debug("expanding selected candidate id=%s", outbound.id)
         expanded = self.search.expand_round_trip(outbound.id)  # type: ignore[attr-defined]
-        expanded_itineraries = _build(expanded, request)
+        expanded_itineraries = _build(expanded, request, busy_intervals, buffer_minutes)
         logger.debug("return expansion candidates=%d ids=%s", len(expanded_itineraries), [item.id for item in expanded_itineraries])
         if not expanded_itineraries:
             self._set_state(AgentState.COMPLETE)
@@ -147,13 +155,20 @@ class FlightAgent:
         logger.debug("state=%s", state.value)
 
 
-def _build(result: FlightSearchResult, request: FlightRequest) -> tuple[Itinerary, ...]:
+def _build(
+    result: FlightSearchResult,
+    request: FlightRequest,
+    busy_intervals: tuple[BusyInterval, ...] = (),
+    buffer_minutes: int = 0,
+) -> tuple[Itinerary, ...]:
     return build_itineraries(
         result,
         max_price=request.max_price,
         max_stops=request.max_stops,
         departure_date=request.departure_date,
         return_date=request.return_date,
+        busy_intervals=busy_intervals,
+        buffer_minutes=buffer_minutes,
     )
 
 
