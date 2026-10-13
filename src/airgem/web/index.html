@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AirGem · flight copilot</title>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <style>
     :root { color-scheme: light; --ink: #18212f; --muted: #697386; --line: #dfe4ec; --blue: #2457d6; --soft: #f6f8fb; --green: #16803c; }
     * { box-sizing: border-box; }
@@ -21,10 +22,16 @@
     label { color: var(--muted); display: block; font-size: .85rem; margin-bottom: .25rem; }
     textarea, input, select { border: 1px solid #c8d0dc; border-radius: .45rem; font: inherit; padding: .65rem .7rem; width: 100%; }
     textarea { min-height: 4.4rem; resize: vertical; }
+    input[type=file] { background: white; font-size: .9rem; }
     button { background: var(--blue); border: 0; border-radius: .45rem; color: white; cursor: pointer; font: inherit; padding: .62rem .85rem; }
     button.secondary { background: white; border: 1px solid #b9c4d5; color: var(--ink); }
-    button:disabled { cursor: wait; opacity: .65; }
-    .chat { display: grid; gap: .65rem; margin: 1.25rem 0; }
+    button:hover { filter: brightness(.95); }
+    .calendar-row { display: grid; gap: .75rem; grid-template-columns: 1fr 9rem; margin-top: .75rem; }
+    .hint { font-size: .82rem; margin: .3rem 0 0; }
+    .busy { display: none; }
+    .htmx-request.busy, .htmx-request .busy { display: inline; }
+    .workspace { margin-top: 1.25rem; }
+    .chat { display: grid; gap: .65rem; margin-bottom: 1.25rem; }
     .message { border-radius: .7rem; max-width: 85%; padding: .7rem .85rem; white-space: pre-wrap; }
     .user-message { background: #e5edff; justify-self: end; }
     .assistant-message { background: white; border: 1px solid var(--line); justify-self: start; }
@@ -44,9 +51,16 @@
     .facts { background: #fffdf0; border-color: #ead98b; margin-top: 1rem; padding: 1rem; }
     .facts ul { margin: 0; padding-left: 1.2rem; }
     .notes { color: var(--muted); margin-top: 1rem; }
-    .error { color: #a00; margin-top: .8rem; }
+    .error { background: #fff1f1; border: 1px solid #e0aaaa; border-radius: .6rem; color: #8a1c1c; margin-top: 1rem; padding: .8rem 1rem; }
+    .follow-up { margin-top: 1.25rem; }
+    .follow-up-row { display: flex; gap: .5rem; }
+    .follow-up-row input { flex: 1; }
     .empty { color: var(--muted); padding: 1rem 0; }
-    @media (max-width: 42rem) { .search-grid { grid-template-columns: 1fr; } .message { max-width: 100%; } }
+    @media (max-width: 42rem) {
+      .search-grid, .calendar-row { grid-template-columns: 1fr; }
+      .message { max-width: 100%; }
+      .follow-up-row { align-items: stretch; flex-direction: column; }
+    }
   </style>
 </head>
 <body>
@@ -57,263 +71,37 @@
     </header>
 
     <section class="panel">
-      <form id="search-form">
+      <form hx-post="/ui/search" hx-target="#workspace" hx-swap="innerHTML" hx-encoding="multipart/form-data" hx-indicator="#searching">
         <div class="search-grid">
           <div>
             <label for="provider">LLM provider</label>
-            <select id="provider">
+            <select id="provider" name="provider">
               <option value="ollama">Ollama</option>
               <option value="openrouter">OpenRouter</option>
             </select>
           </div>
           <div>
             <label for="prompt">What are you looking for?</label>
-            <textarea id="prompt" required placeholder="Find cheap flights from GRU to POA on 2027-01-01, returning 2027-01-08"></textarea>
+            <textarea id="prompt" name="prompt" required placeholder="Find cheap flights from GRU to POA on 2027-01-01, returning 2027-01-08"></textarea>
           </div>
-          <button id="search-button" type="submit">Search flights</button>
+          <button type="submit">Search flights</button>
         </div>
+        <div class="calendar-row">
+          <div>
+            <label for="calendar">Optional local calendar (.ics)</label>
+            <input id="calendar" name="calendar" type="file" accept=".ics,text/calendar">
+            <p class="hint muted">Calendar data is used in memory and discarded after the search starts.</p>
+          </div>
+          <div>
+            <label for="buffer_minutes">Travel buffer</label>
+            <input id="buffer_minutes" name="buffer_minutes" type="number" min="0" value="60">
+          </div>
+        </div>
+        <span id="searching" class="busy muted">AirGem is checking flights…</span>
       </form>
     </section>
 
-    <section id="chat" class="chat" aria-live="polite"></section>
-
-    <section id="follow-up" class="panel" hidden>
-      <form id="message-form">
-        <label for="message">Continue the search</label>
-        <div style="display:flex; gap:.5rem">
-          <input id="message" required placeholder="Try “show the next outbound” or “prefer nonstop flights”">
-          <button id="message-button" type="submit">Ask</button>
-        </div>
-      </form>
-    </section>
-
-    <div id="error" class="error" role="alert"></div>
-    <section id="results"></section>
+    <section id="workspace" aria-live="polite"></section>
   </main>
-
-  <script>
-    let sessionId = null;
-    const chat = document.querySelector('#chat');
-    const results = document.querySelector('#results');
-    const error = document.querySelector('#error');
-
-    document.querySelector('#search-form').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      sessionId = null;
-      chat.textContent = '';
-      results.textContent = '';
-      await request('/api/search', {
-        prompt: document.querySelector('#prompt').value,
-        provider: document.querySelector('#provider').value
-      });
-    });
-
-    document.querySelector('#message-form').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const input = document.querySelector('#message');
-      const prompt = input.value.trim();
-      if (!sessionId || !prompt) return;
-      await request(`/api/sessions/${sessionId}/messages`, {prompt});
-      input.value = '';
-    });
-
-    async function request(url, body) {
-      setBusy(true);
-      error.textContent = '';
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(body)
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Request failed');
-        sessionId = data.session_id;
-        renderConversation(data.messages || []);
-        renderResults(data);
-        document.querySelector('#follow-up').hidden = false;
-      } catch (requestError) {
-        error.textContent = requestError.message;
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    function setBusy(busy) {
-      document.querySelector('#search-button').disabled = busy;
-      document.querySelector('#message-button').disabled = busy;
-      results.querySelector('.working')?.remove();
-      if (busy && sessionId) {
-        const status = document.createElement('p');
-        status.className = 'working muted';
-        status.textContent = 'AirGem is checking the options…';
-        results.prepend(status);
-      }
-    }
-
-    function renderConversation(messages) {
-      chat.textContent = '';
-      messages.forEach((message) => {
-        const item = document.createElement('div');
-        item.className = `message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`;
-        const label = document.createElement('span');
-        label.className = 'message-label';
-        label.textContent = message.role === 'user' ? 'You' : 'AirGem';
-        item.append(label, document.createTextNode(message.content));
-        chat.append(item);
-      });
-    }
-
-    function renderResults(data) {
-      results.textContent = '';
-      const heading = document.createElement('div');
-      heading.className = 'results-header';
-      const title = document.createElement('h2');
-      title.textContent = `${data.request.origin} → ${data.request.destination}`;
-      const dates = document.createElement('span');
-      dates.className = 'muted';
-      dates.textContent = data.request.return_date
-        ? `${data.request.departure_date} → ${data.request.return_date}`
-        : data.request.departure_date;
-      heading.append(title, dates);
-      results.append(heading);
-
-      const evaluated = document.createElement('h3');
-      evaluated.textContent = data.itineraries.length ? 'Current options' : 'No matching options';
-      results.append(evaluated);
-      const cards = document.createElement('div');
-      cards.className = 'cards';
-      const alternatives = new Set(data.alternatives);
-      data.itineraries.forEach((itinerary) => cards.append(renderItinerary(itinerary, data, alternatives)));
-      if (cards.children.length) results.append(cards);
-
-      if (data.deferred_outbound.length) {
-        const pending = document.createElement('h3');
-        pending.textContent = 'More outbound options';
-        results.append(pending);
-        const pendingCards = document.createElement('div');
-        pendingCards.className = 'cards';
-        data.deferred_outbound.forEach((itinerary) => pendingCards.append(renderItinerary(itinerary, data, new Set())));
-        results.append(pendingCards);
-      }
-      renderRationale(data.rationale);
-      if (data.notes.length) {
-        const notes = document.createElement('p');
-        notes.className = 'notes';
-        notes.textContent = data.notes.join(' ');
-        results.append(notes);
-      }
-    }
-
-    function renderItinerary(itinerary, data, alternatives) {
-      const selected = data.selected && data.selected.id === itinerary.id;
-      const item = document.createElement('article');
-      item.className = `flight${selected ? ' selected' : ''}`;
-      const title = document.createElement('div');
-      title.className = 'flight-title';
-      const name = document.createElement('strong');
-      name.textContent = `${itinerary.id} · ${airlineName(itinerary)}`;
-      title.append(name);
-      if (selected) {
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = 'Selected';
-        title.append(badge);
-      } else if (alternatives.has(itinerary.id)) {
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = 'Alternative';
-        title.append(badge);
-      }
-      item.append(title);
-      const price = document.createElement('div');
-      price.className = 'price';
-      price.textContent = `${itinerary.currency} ${Number(itinerary.price).toFixed(2)}`;
-      item.append(price);
-      item.append(renderLeg('Outbound', itinerary.outbound));
-      if (itinerary.inbound) item.append(renderLeg('Return', itinerary.inbound));
-      else if (itinerary.return_pending) appendText(item, 'Return details pending', 'muted');
-
-      const actions = data.available_actions.filter((action) => action.prompt.includes(itinerary.id));
-      if (actions.length) {
-        const actionRow = document.createElement('div');
-        actionRow.className = 'flight-actions';
-        actions.forEach((action) => {
-          const button = document.createElement('button');
-          button.className = 'secondary';
-          button.type = 'button';
-          button.textContent = action.label;
-          button.addEventListener('click', () => submitFollowUp(action.prompt));
-          actionRow.append(button);
-        });
-        item.append(actionRow);
-      }
-      return item;
-    }
-
-    function renderLeg(label, leg) {
-      const item = document.createElement('div');
-      item.className = 'leg';
-      const route = document.createElement('strong');
-      route.textContent = `${label} · ${leg.origin} → ${leg.destination}`;
-      item.append(route);
-      appendText(item, `${prettyDate(leg.departure)} · ${leg.airline || 'Airline pending'}`, 'muted');
-      appendText(item, `${stopsLabel(leg.stops)} · ${durationLabel(leg.duration_minutes)}`, 'muted');
-      return item;
-    }
-
-    function renderRationale(rationale) {
-      if (!rationale) return;
-      const facts = document.createElement('section');
-      facts.className = 'facts';
-      const heading = document.createElement('h3');
-      heading.textContent = 'Why this option';
-      facts.append(heading);
-      const list = document.createElement('ul');
-      const metrics = rationale.metrics;
-      addFact(list, `Compared ${rationale.evaluated_candidates} candidate(s)`);
-      addFact(list, `Price: ${metrics.currency} ${Number(metrics.price).toFixed(2)}`);
-      addFact(list, `Duration: ${durationLabel(metrics.duration_minutes)}`);
-      addFact(list, `Stops: ${stopsLabel(metrics.stops)}`);
-      if (rationale.constraints.max_price != null) addFact(list, `Budget limit: ${metrics.currency} ${Number(rationale.constraints.max_price).toFixed(2)}`);
-      if (rationale.constraints.max_stops != null) addFact(list, `Stop limit: ${rationale.constraints.max_stops}`);
-      if (rationale.constraints.calendar_events) addFact(list, `Calendar checked with ${rationale.constraints.buffer_minutes}-minute buffer`);
-      facts.append(list);
-      results.append(facts);
-    }
-
-    function submitFollowUp(prompt) {
-      if (!sessionId) return;
-      document.querySelector('#message').value = prompt;
-      document.querySelector('#message-form').requestSubmit();
-    }
-
-    function appendText(parent, text, className) {
-      const element = document.createElement('div');
-      element.className = className;
-      element.textContent = text;
-      parent.append(element);
-    }
-
-    function addFact(list, text) {
-      const item = document.createElement('li');
-      item.textContent = text;
-      list.append(item);
-    }
-
-    function airlineName(itinerary) {
-      const names = [itinerary.outbound.airline, itinerary.inbound?.airline].filter(Boolean);
-      return [...new Set(names)].join(' + ') || 'Airline pending';
-    }
-
-    function prettyDate(value) { return value.replace('T', ' '); }
-    function stopsLabel(stops) { return stops == null ? 'stops pending' : stops === 0 ? 'nonstop' : `${stops} stop${stops === 1 ? '' : 's'}`; }
-    function durationLabel(minutes) {
-      if (minutes == null) return 'duration pending';
-      const hours = Math.floor(minutes / 60);
-      const remainder = minutes % 60;
-      return hours ? `${hours}h ${String(remainder).padStart(2, '0')}m` : `${remainder}m`;
-    }
-  </script>
 </body>
 </html>

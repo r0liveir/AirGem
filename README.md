@@ -53,7 +53,7 @@ SerpAPI Google Flights search
         ↓
 exact-date, price, stop, and calendar filters
         ↓
-Pareto frontier: price, duration, stops
+Pareto frontier plus a small ranked alternative pool
         ↓
 bounded Gemma candidate selection
         ↓
@@ -177,15 +177,20 @@ Run the small local web server when testing follow-up session behavior:
 uv run web
 ```
 
-Open <http://127.0.0.1:8000>. The page keeps an in-memory session so follow-ups
-such as “try the other outbound” can expand deferred round-trip options. No
-chat history or database is used; sessions disappear when the server stops.
+Open <http://127.0.0.1:8000/ui/>. The page is a small server-rendered HTML
+interface enhanced with HTMX. It keeps an in-memory session so follow-ups such
+as “try the other outbound” can expand deferred round-trip options. No chat
+history or database is used; sessions disappear when the server stops.
 
 Equivalent direct command:
 
 ```bash
 uv run uvicorn airgem.web:app --reload
 ```
+
+The web page has no frontend build step. HTMX is loaded from its public CDN;
+the flight data, calendar upload, and session state stay in the local FastAPI
+process.
 
 ## What can the user ask for?
 

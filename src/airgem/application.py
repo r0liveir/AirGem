@@ -5,7 +5,7 @@ from datetime import datetime, time, timedelta
 from typing import Any, Literal
 
 from airgem.agent import AgentResult, AgentSession, FlightAgent
-from airgem.calendar import BusyInterval, load_ics
+from airgem.calendar import BusyInterval, load_ics, parse_ics
 from airgem.core import FlightRequest, parse_flight_request
 from airgem.itinerary import itinerary_to_dict
 from airgem.llm import LLMProvider
@@ -37,18 +37,26 @@ def start_session(
     busy_intervals: tuple[BusyInterval, ...] = (),
     buffer_minutes: int = 0,
     calendar_path: str | None = None,
+    calendar_text: str | None = None,
 ) -> tuple[ApplicationSession, dict[str, Any]]:
     request = parse_flight_request(prompt, llm_provider)
     if request.missing:
         missing = ", ".join(request.missing)
         raise ValueError(f"missing required flight fields: {missing}")
-    if calendar_path:
+    if calendar_path and calendar_text:
+        raise ValueError("provide either calendar_path or calendar_text, not both")
+    if calendar_path or calendar_text:
         calendar_end_date = request.return_date or request.departure_date
-        busy_intervals = load_ics(
-            calendar_path,
-            start=datetime.combine(request.departure_date - timedelta(days=1), time.min),
-            end=datetime.combine(calendar_end_date + timedelta(days=2), time.min),
-    )
+        calendar_start = datetime.combine(request.departure_date - timedelta(days=1), time.min)
+        calendar_end = datetime.combine(calendar_end_date + timedelta(days=2), time.min)
+        if calendar_text is not None:
+            busy_intervals = parse_ics(calendar_text, start=calendar_start, end=calendar_end)
+        else:
+            busy_intervals = load_ics(
+                calendar_path,
+                start=calendar_start,
+                end=calendar_end,
+            )
 
     agent = FlightAgent(llm_provider, search_provider)
     session, result = agent.start(

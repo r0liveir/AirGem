@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "icalendar>=7.3.0",
     "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.32",
     "recurring-ical-events>=3.8.2",
     "uvicorn>=0.30.0",
 ]

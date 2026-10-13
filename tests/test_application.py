@@ -75,3 +75,24 @@ class TestApplication(unittest.TestCase):
         self.assertEqual(len(updated["messages"]), 4)
         self.assertEqual(updated["messages"][-2]["content"], "select the other option")
         self.assertEqual(updated["available_actions"], [{"label": "Select one-way-0", "prompt": "Select one-way-0"}])
+
+    def test_calendar_text_is_parsed_for_web_uploads(self) -> None:
+        calendar = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20261106T070000
+DTEND:20261106T080000
+SUMMARY:Breakfast
+END:VEVENT
+END:VCALENDAR
+"""
+
+        _, payload = start_session(
+            "cheap flight",
+            FakeLLM(),
+            FakeSearch(),
+            calendar_text=calendar,
+            buffer_minutes=45,
+        )
+
+        self.assertIn("Applied 1 calendar event(s) with a 45-minute travel buffer", payload["notes"][-1])

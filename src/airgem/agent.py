@@ -103,7 +103,7 @@ class FlightAgent:
             len(result.inbound),
         )
         itineraries = _build(result, request, busy_intervals, buffer_minutes)
-        logger.debug("Pareto candidates=%d ids=%s", len(itineraries), [item.id for item in itineraries])
+        logger.debug("candidate pool=%d ids=%s", len(itineraries), [item.id for item in itineraries])
         session.outbound_candidates = itineraries
         if not itineraries:
             session.selection_notes.append("No valid candidates found.")
@@ -278,6 +278,7 @@ def _build(
         return_date=request.return_date,
         busy_intervals=busy_intervals,
         buffer_minutes=buffer_minutes,
+        candidate_limit=6,
     )
 
 

@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from airgem.calendar import BusyInterval
-from airgem.pareto import pareto_front
+from airgem.pareto import bounded_pareto_front, pareto_front
 from airgem.search import FlightOption, FlightSearchResult
 
 
@@ -31,9 +31,12 @@ def build_itineraries(
     return_date: date | None = None,
     busy_intervals: tuple[BusyInterval, ...] = (),
     buffer_minutes: int = 0,
+    candidate_limit: int | None = None,
 ) -> tuple[Itinerary, ...]:
     if buffer_minutes < 0:
         raise ValueError("buffer_minutes must be non-negative")
+    if candidate_limit is not None and candidate_limit < 1:
+        raise ValueError("candidate_limit must be positive")
     if result.round_trip and result.inbound:
         itineraries = (
             Itinerary(
@@ -93,7 +96,10 @@ def build_itineraries(
         if max_price is None or itinerary.price <= max_price
     )
     candidates = tuple(filtered)
-    candidates = pareto_front(candidates, _metrics)
+    if candidate_limit is None:
+        candidates = pareto_front(candidates, _metrics)
+    else:
+        candidates = bounded_pareto_front(candidates, _metrics, limit=candidate_limit)
     return tuple(sorted(candidates, key=_sort_key))
 
 
