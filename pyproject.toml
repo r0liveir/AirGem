@@ -2,19 +2,22 @@
 name = "airgem"
 version = "0.1.0"
 description = "Privacy-first flight search copilot"
-readme = "PROJECT.md"
+readme = "README.md"
 authors = [
     { name = "wate", email = "ryan.o2712@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.115.0",
     "icalendar>=7.3.0",
     "python-dotenv>=1.0.0",
     "recurring-ical-events>=3.8.2",
+    "uvicorn>=0.30.0",
 ]
 
 [project.scripts]
 airgem = "airgem.cli:main"
+web = "airgem.web:main"
 
 [build-system]
 requires = ["hatchling"]

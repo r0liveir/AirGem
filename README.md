@@ -73,6 +73,7 @@ Current functionality includes:
 - Selected round-trip outbound expansion before return selection.
 - Local **Ollama Gemma** or **OpenRouter Gemma** providers.
 - A bounded state-machine agent with deterministic fallback behavior.
+- A small local FastAPI web UI with in-memory follow-up sessions.
 - Offline unit tests for parsing, search adapters, calendar handling, itinerary
   construction, Pareto filtering, and agent behavior.
 
@@ -167,6 +168,24 @@ uv run airgem --debug \
 Debug output is intended for humans. It does not print hidden model reasoning,
 API keys, or SerpAPI departure tokens. Do not combine `--debug` with machine
 parsing.
+
+## Local web UI
+
+Run the small local web server when testing follow-up session behavior:
+
+```bash
+uv run web
+```
+
+Open <http://127.0.0.1:8000>. The page keeps an in-memory session so follow-ups
+such as “try the other outbound” can expand deferred round-trip options. No
+chat history or database is used; sessions disappear when the server stops.
+
+Equivalent direct command:
+
+```bash
+uv run uvicorn airgem.web:app --reload
+```
 
 ## What can the user ask for?
 
@@ -285,7 +304,10 @@ airgem/
 │   │   ├── flight_request.py  # Validated normalized request
 │   │   └── parse.py           # Natural language → request
 │   ├── calendar.py            # .ics parsing and recurrence expansion
+│   ├── application.py         # Shared CLI/web application orchestration
 │   ├── agent.py               # Bounded candidate-selection state machine
+│   ├── web.py                 # Minimal FastAPI server and session endpoints
+│   ├── web/index.html         # Minimal local chat UI
 │   ├── itinerary.py           # Pairing and hard constraints
 │   ├── pareto.py              # Multi-objective candidate filtering
 │   └── search/
@@ -324,7 +346,7 @@ Later work:
 - Multiple-airport searches.
 - Booking URL resolution after itinerary selection.
 - Additional search providers.
-- FastAPI/Render deployment and Sentry observability.
+- Hosted deployment and Sentry observability.
 
 Google Calendar is intentionally not required for the first slice. An API
 integration would add OAuth, scopes, token storage, refresh behavior, and more

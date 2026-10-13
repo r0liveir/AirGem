@@ -5,16 +5,11 @@ import json
 import logging
 import os
 import sys
-from dataclasses import asdict
-from datetime import datetime, time, timedelta
 from typing import Any
 
-from airgem.agent import FlightAgent
-from airgem.calendar import BusyInterval, load_ics
-from airgem.core import parse_flight_request
-from airgem.itinerary import itinerary_to_dict
+from airgem.application import start_session
 from airgem.llm import OllamaProvider, OpenRouterProvider
-from airgem.search import FlightSearchProvider, FlightSearchResult, SerpApiProvider
+from airgem.search import FlightSearchProvider, SerpApiProvider
 
 
 def run(
@@ -26,56 +21,15 @@ def run(
     buffer_minutes: int = 0,
     calendar_path: str | None = None,
 ) -> dict[str, Any]:
-    request = parse_flight_request(prompt, llm_provider)
-    if request.missing:
-        missing = ", ".join(request.missing)
-        raise ValueError(f"missing required flight fields: {missing}")
-    if calendar_path:
-        calendar_end_date = request.return_date or request.departure_date
-        busy_intervals = load_ics(
-            calendar_path,
-            start=datetime.combine(request.departure_date - timedelta(days=1), time.min),
-            end=datetime.combine(calendar_end_date + timedelta(days=2), time.min),
-        )
-    agent_result = FlightAgent(llm_provider, search_provider).run(
+    _, payload = start_session(
         prompt,
-        request,
+        llm_provider,
+        search_provider,
         busy_intervals=busy_intervals,
         buffer_minutes=buffer_minutes,
+        calendar_path=calendar_path,
     )
-    notes = list(agent_result.search_result.notes + agent_result.notes)
-    if busy_intervals:
-        notes.append(
-            f"Applied {len(busy_intervals)} calendar event(s) with a "
-            f"{buffer_minutes}-minute travel buffer before Pareto filtering."
-        )
-    return {
-        "request": request.to_dict(),
-        "itineraries": [itinerary_to_dict(item) for item in agent_result.itineraries],
-        "selected": itinerary_to_dict(agent_result.selected) if agent_result.selected else None,
-        "alternatives": [item.id for item in agent_result.alternatives],
-        "deferred_outbound": [itinerary_to_dict(item) for item in agent_result.deferred_outbound],
-        "agent_state": agent_result.state.value,
-        **_search_result_to_dict(agent_result.search_result),
-        "notes": notes,
-    }
-
-
-def _search_result_to_dict(result: FlightSearchResult) -> dict[str, Any]:
-    return {
-        "outbound": [_flight_option_to_dict(option) for option in result.outbound],
-        "inbound": [_flight_option_to_dict(option) for option in result.inbound],
-        "round_trip": result.round_trip,
-        "price_is_total": result.price_is_total,
-        "notes": list(result.notes),
-    }
-
-
-def _flight_option_to_dict(option: Any) -> dict[str, Any]:
-    values = asdict(option)
-    values["departure"] = option.departure.isoformat()
-    values["arrival"] = option.arrival.isoformat()
-    return values
+    return payload
 
 
 def _format_human(payload: dict[str, Any]) -> str:

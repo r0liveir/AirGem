@@ -67,12 +67,14 @@ class RoundTripSearch:
 
     def expand_round_trip(self, candidate_id: str) -> FlightSearchResult:
         self.expanded_id = candidate_id
+        outbound_price = 180 if candidate_id == "candidate-0" else 200
+        outbound_hour = 8 if candidate_id == "candidate-0" else 10
         return FlightSearchResult(
-            outbound=(option("candidate-0", 180, 8),),
+            outbound=(option(candidate_id, outbound_price, outbound_hour),),
             inbound=(
-                option("candidate-0/return-0", 0, 18, day=8, origin="POA", destination="GRU"),
+                option(f"{candidate_id}/return-0", 0, 18, day=8, origin="POA", destination="GRU"),
                 option(
-                    "candidate-0/return-1",
+                    f"{candidate_id}/return-1",
                     0,
                     20,
                     day=8,
@@ -122,6 +124,31 @@ class TestFlightAgent(unittest.TestCase):
         self.assertEqual(result.selected.price, 180)
         self.assertEqual(tuple(item.id for item in result.alternatives), ("candidate-0/return-0",))
         self.assertEqual(tuple(item.id for item in result.deferred_outbound), ("candidate-1",))
+
+    def test_session_expands_deferred_outbound_on_follow_up(self) -> None:
+        search = RoundTripSearch()
+        agent = FlightAgent(
+            FakeLLM(
+                [
+                    '{"action":"select_candidate","candidate_id":"candidate-0"}',
+                    '{"action":"select_return","candidate_id":"candidate-0/return-1"}',
+                    '{"action":"select_return","candidate_id":"candidate-1/return-0"}',
+                ]
+            ),
+            search,
+        )
+
+        session, first = agent.start("cheap flight", self.request)
+        second = agent.continue_session(session, "try the other outbound")
+
+        self.assertEqual(first.deferred_outbound[0].id, "candidate-1")
+        self.assertEqual(search.expanded_id, "candidate-1")
+        self.assertEqual(second.selected.id, "candidate-1/return-0")
+        self.assertEqual(second.deferred_outbound, ())
+        self.assertEqual(
+            tuple(item.id for item in second.alternatives),
+            ("candidate-0/return-1", "candidate-0/return-0", "candidate-1/return-1"),
+        )
 
     def test_invalid_action_falls_back_to_first_pareto_candidate(self) -> None:
         agent = FlightAgent(FakeLLM(["not json"]), OneWaySearch())

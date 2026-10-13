@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
@@ -22,6 +22,25 @@ class AgentState(StrEnum):
     EXPANDING_RETURN = "expanding_return"
     SELECTING_RETURN = "selecting_return"
     COMPLETE = "complete"
+
+
+@dataclass
+class AgentSession:
+    """In-memory state for bounded follow-up actions."""
+
+    prompt: str
+    request: FlightRequest
+    busy_intervals: tuple[BusyInterval, ...] = ()
+    buffer_minutes: int = 0
+    outbound_candidates: tuple[Itinerary, ...] = ()
+    deferred_outbound: tuple[Itinerary, ...] = ()
+    expanded_itineraries: tuple[Itinerary, ...] = ()
+    selected: Itinerary | None = None
+    search_result: FlightSearchResult | None = None
+    state: AgentState = AgentState.SEARCHING
+    turns: int = 0
+    selection_notes: list[str] = field(default_factory=list)
+    expanded_outbound_ids: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -43,8 +62,6 @@ class FlightAgent:
         self.search = search
         self.max_turns = max(0, max_turns)
         self.state = AgentState.SEARCHING
-        self._turns = 0
-        self._selection_notes: list[str] = []
 
     def run(
         self,
@@ -54,10 +71,31 @@ class FlightAgent:
         busy_intervals: tuple[BusyInterval, ...] = (),
         buffer_minutes: int = 0,
     ) -> AgentResult:
-        self._set_state(AgentState.SEARCHING)
-        self._turns = 0
-        self._selection_notes = []
+        _, result = self.start(
+            prompt,
+            request,
+            busy_intervals=busy_intervals,
+            buffer_minutes=buffer_minutes,
+        )
+        return result
+
+    def start(
+        self,
+        prompt: str,
+        request: FlightRequest,
+        *,
+        busy_intervals: tuple[BusyInterval, ...] = (),
+        buffer_minutes: int = 0,
+    ) -> tuple[AgentSession, AgentResult]:
+        session = AgentSession(
+            prompt=prompt,
+            request=request,
+            busy_intervals=busy_intervals,
+            buffer_minutes=buffer_minutes,
+        )
+        self._set_state(session, AgentState.SEARCHING)
         result = self.search.search(request)
+        session.search_result = result
         logger.debug(
             "search complete round_trip=%s outbound=%d inbound=%d",
             result.round_trip,
@@ -66,69 +104,120 @@ class FlightAgent:
         )
         itineraries = _build(result, request, busy_intervals, buffer_minutes)
         logger.debug("Pareto candidates=%d ids=%s", len(itineraries), [item.id for item in itineraries])
+        session.outbound_candidates = itineraries
         if not itineraries:
-            self._set_state(AgentState.COMPLETE)
-            return AgentResult(self.state, result, (), None, ("No valid candidates found.",))
+            session.selection_notes.append("No valid candidates found.")
+            self._set_state(session, AgentState.COMPLETE)
+            return session, self._result(session)
 
-        self._set_state(AgentState.SELECTING_OUTBOUND)
-        outbound = self._select("select_candidate", prompt, itineraries)
+        self._set_state(session, AgentState.SELECTING_OUTBOUND)
+        outbound = self._select(session, "select_candidate", prompt, itineraries)
         if not result.round_trip:
-            self._set_state(AgentState.COMPLETE)
-            return AgentResult(
-                self.state,
-                result,
-                itineraries,
-                outbound,
-                self._notes,
-                _without(itineraries, outbound),
-            )
+            session.expanded_itineraries = itineraries
+            session.selected = outbound
+            self._set_state(session, AgentState.COMPLETE)
+            return session, self._result(session)
 
+        session.deferred_outbound = _without(itineraries, outbound)
+        return session, self._expand_outbound(session, outbound, prompt)
+
+    def continue_session(self, session: AgentSession, prompt: str) -> AgentResult:
+        """Apply a bounded follow-up to the current candidate set."""
+        session.prompt = prompt
+        session.turns = 0
+        if session.deferred_outbound:
+            if not hasattr(self.search, "expand_round_trip"):
+                raise ValueError("search provider cannot expand round trips")
+            self._set_state(session, AgentState.SELECTING_OUTBOUND)
+            outbound = self._select(
+                session,
+                "select_deferred_outbound",
+                prompt,
+                session.deferred_outbound,
+            )
+            session.deferred_outbound = _without(session.deferred_outbound, outbound)
+            return self._expand_outbound(session, outbound, prompt)
+
+        candidates = _without(session.outbound_candidates, session.selected) if session.selected else session.outbound_candidates
+        if not candidates:
+            self._set_state(session, AgentState.COMPLETE)
+            return self._result(session)
+        self._set_state(session, AgentState.SELECTING_OUTBOUND)
+        session.selected = self._select(session, "select_candidate", prompt, candidates)
+        self._set_state(session, AgentState.COMPLETE)
+        return self._result(session)
+
+    def _expand_outbound(
+        self,
+        session: AgentSession,
+        outbound: Itinerary,
+        prompt: str,
+    ) -> AgentResult:
         if not hasattr(self.search, "expand_round_trip"):
             raise ValueError("search provider cannot expand round trips")
 
-        self._set_state(AgentState.EXPANDING_RETURN)
+        self._set_state(session, AgentState.EXPANDING_RETURN)
         logger.debug("expanding selected candidate id=%s", outbound.id)
         expanded = self.search.expand_round_trip(outbound.id)  # type: ignore[attr-defined]
-        expanded_itineraries = _build(expanded, request, busy_intervals, buffer_minutes)
-        logger.debug("return expansion candidates=%d ids=%s", len(expanded_itineraries), [item.id for item in expanded_itineraries])
-        if not expanded_itineraries:
-            self._set_state(AgentState.COMPLETE)
-            return AgentResult(
-                self.state,
-                expanded,
-                (),
-                None,
-                self._notes + ("Selected candidate returned no valid return flights.",),
-                (),
-                _without(itineraries, outbound),
-            )
-
-        self._set_state(AgentState.SELECTING_RETURN)
-        selected = self._select("select_return", prompt, expanded_itineraries)
-        self._set_state(AgentState.COMPLETE)
-        return AgentResult(
-            self.state,
+        session.expanded_outbound_ids.add(outbound.id)
+        session.search_result = expanded
+        expanded_itineraries = _build(
             expanded,
-            expanded_itineraries,
-            selected,
-            self._notes,
-            _without(expanded_itineraries, selected),
-            _without(itineraries, outbound),
+            session.request,
+            session.busy_intervals,
+            session.buffer_minutes,
+        )
+        session.expanded_itineraries = _merge_unique(session.expanded_itineraries, expanded_itineraries)
+        logger.debug(
+            "return expansion candidates=%d ids=%s",
+            len(expanded_itineraries),
+            [item.id for item in expanded_itineraries],
+        )
+        if not expanded_itineraries:
+            note = "Selected candidate returned no valid return flights."
+            if note not in session.selection_notes:
+                session.selection_notes.append(note)
+            self._set_state(session, AgentState.COMPLETE)
+            return self._result(session)
+
+        self._set_state(session, AgentState.SELECTING_RETURN)
+        session.selected = self._select(session, "select_return", prompt, expanded_itineraries)
+        self._set_state(session, AgentState.COMPLETE)
+        return self._result(session)
+
+    def _result(self, session: AgentSession) -> AgentResult:
+        if session.search_result is None:
+            raise RuntimeError("agent session has no search result")
+        alternatives = (
+            _without(session.expanded_itineraries, session.selected)
+            if session.selected is not None
+            else session.expanded_itineraries
+        )
+        return AgentResult(
+            state=session.state,
+            search_result=session.search_result,
+            itineraries=session.expanded_itineraries,
+            selected=session.selected,
+            notes=tuple(session.selection_notes),
+            alternatives=alternatives,
+            deferred_outbound=session.deferred_outbound,
         )
 
-    @property
-    def _notes(self) -> tuple[str, ...]:
-        return tuple(self._selection_notes)
-
-    def _select(self, action: str, prompt: str, candidates: tuple[Itinerary, ...]) -> Itinerary:
+    def _select(
+        self,
+        session: AgentSession,
+        action: str,
+        prompt: str,
+        candidates: tuple[Itinerary, ...],
+    ) -> Itinerary:
         if len(candidates) == 1:
             logger.debug("single candidate id=%s; skip LLM selection", candidates[0].id)
             return candidates[0]
-        if self._turns >= self.max_turns:
-            return self._fallback(candidates, "Agent turn budget exhausted; used Pareto fallback.")
+        if session.turns >= self.max_turns:
+            return self._fallback(session, candidates, "Agent turn budget exhausted; used Pareto fallback.")
 
-        self._turns += 1
-        logger.debug("LLM selection turn=%d action=%s candidates=%d", self._turns, action, len(candidates))
+        session.turns += 1
+        logger.debug("LLM selection turn=%d action=%s candidates=%d", session.turns, action, len(candidates))
         candidate_ids = [candidate.id for candidate in candidates]
         response = self.llm.complete(
             system=(
@@ -161,16 +250,17 @@ class FlightAgent:
             if candidate.id == candidate_id:
                 logger.debug("selected candidate id=%s", candidate.id)
                 return candidate
-        return self._fallback(candidates, "LLM chose invalid candidate; used Pareto fallback.")
+        return self._fallback(session, candidates, "LLM chose invalid candidate; used Pareto fallback.")
 
-    def _fallback(self, candidates: tuple[Itinerary, ...], note: str = "Used deterministic Pareto fallback.") -> Itinerary:
-        if note not in self._selection_notes:
-            self._selection_notes.append(note)
+    def _fallback(self, session: AgentSession, candidates: tuple[Itinerary, ...], note: str) -> Itinerary:
+        if note not in session.selection_notes:
+            session.selection_notes.append(note)
         logger.debug("fallback candidate id=%s reason=%s", candidates[0].id, note)
         return candidates[0]
 
-    def _set_state(self, state: AgentState) -> None:
+    def _set_state(self, session: AgentSession, state: AgentState) -> None:
         self.state = state
+        session.state = state
         logger.debug("state=%s", state.value)
 
 
@@ -207,6 +297,18 @@ def _candidate_to_dict(itinerary: Itinerary) -> dict[str, Any]:
 
 def _without(candidates: tuple[Itinerary, ...], excluded: Itinerary) -> tuple[Itinerary, ...]:
     return tuple(candidate for candidate in candidates if candidate.id != excluded.id)
+
+
+def _merge_unique(
+    current: tuple[Itinerary, ...], additions: tuple[Itinerary, ...]
+) -> tuple[Itinerary, ...]:
+    seen = {candidate.id for candidate in current}
+    merged = list(current)
+    for candidate in additions:
+        if candidate.id not in seen:
+            merged.append(candidate)
+            seen.add(candidate.id)
+    return tuple(merged)
 
 
 def _action_candidate_id(response: str, expected_action: str) -> str | None:
