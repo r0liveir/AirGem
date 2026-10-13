@@ -31,7 +31,6 @@ def _search_result_to_dict(result: FlightSearchResult) -> dict[str, Any]:
 
 def _flight_option_to_dict(option: Any) -> dict[str, Any]:
     values = asdict(option)
-    values.pop("booking_token", None)
     values["departure"] = option.departure.isoformat()
     values["arrival"] = option.arrival.isoformat()
     return values

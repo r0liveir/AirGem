@@ -141,7 +141,7 @@ result = SerpApiProvider().search(
 )
 ```
 
-SerpAPI defaults: deep search, exact dates, price sorting. Round trips run two independent one-way searches, preserving separate booking URLs; native round-trip pairing is work in progress. Flexible dates are not supported yet.
+SerpAPI defaults: deep search, exact dates, price sorting. Round trips run two independent one-way searches; native round-trip pairing is work in progress. Booking resolution is deferred until itinerary selection. Flexible dates are not supported yet.
 
 Run offline tests:
 

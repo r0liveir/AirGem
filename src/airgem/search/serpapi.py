@@ -91,18 +91,10 @@ class SerpApiProvider:
         payload = self._fetch_json(params)
         _raise_api_error(payload)
         currency = str(payload.get("search_parameters", {}).get("currency", request.currency or "USD")).upper()
-        options = tuple(
-            self._flight_option(item, currency, outbound_date)
-            for item in _flight_groups(payload)
-        )
+        options = tuple(self._flight_option(item, currency) for item in _flight_groups(payload))
         return tuple(option for option in options if option is not None)
 
-    def _flight_option(
-        self,
-        item: dict[str, Any],
-        currency: str,
-        outbound_date: date,
-    ) -> FlightOption | None:
+    def _flight_option(self, item: dict[str, Any], currency: str) -> FlightOption | None:
         flights = item.get("flights")
         price = item.get("price")
         if not isinstance(flights, list) or not flights or not isinstance(price, (int, float)):
@@ -119,12 +111,6 @@ class SerpApiProvider:
         except (KeyError, TypeError, ValueError):
             return None
 
-        booking_token = item.get("booking_token")
-        booking_url = (
-            self._booking_url(booking_token, origin, destination, outbound_date)
-            if isinstance(booking_token, str)
-            else None
-        )
         return FlightOption(
             provider=self.name,
             origin=origin,
@@ -134,43 +120,7 @@ class SerpApiProvider:
             price=float(price),
             currency=currency,
             stops=max(0, len(flights) - 1),
-            booking_url=booking_url,
-            booking_token=booking_token if isinstance(booking_token, str) else None,
         )
-
-    def _booking_url(
-        self,
-        booking_token: str,
-        departure_id: str,
-        arrival_id: str,
-        outbound_date: date,
-    ) -> str | None:
-        payload = self._fetch_json(
-            {
-                "engine": "google_flights",
-                "api_key": self.api_key,
-                "type": "2",
-                "booking_token": booking_token,
-                "departure_id": departure_id,
-                "arrival_id": arrival_id,
-                "outbound_date": outbound_date.isoformat(),
-            }
-        )
-        _raise_api_error(payload)
-        candidates: list[tuple[float, str]] = []
-        for option in payload.get("booking_options", []):
-            if not isinstance(option, dict):
-                continue
-            for key in ("together", "separate"):
-                details = option.get(key)
-                if not isinstance(details, dict):
-                    continue
-                booking_request = details.get("booking_request")
-                url = booking_request.get("url") if isinstance(booking_request, dict) else None
-                price = details.get("price")
-                if isinstance(url, str) and isinstance(price, (int, float)):
-                    candidates.append((float(price), url))
-        return min(candidates)[1] if candidates else None
 
     def _get_json(self, params: dict[str, str]) -> dict[str, Any]:
         request = Request(_request_url(self.base_url, params), method="GET")

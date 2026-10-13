@@ -7,13 +7,6 @@ from airgem.search.serpapi import _request_url
 
 
 def request_data(params: dict[str, str]) -> dict:
-    if "booking_token" in params:
-        return {
-            "booking_options": [
-                {"together": {"price": 120, "booking_request": {"url": "https://expensive.example"}}},
-                {"together": {"price": 90, "booking_request": {"url": "https://cheap.example"}}},
-            ]
-        }
     return {
         "search_parameters": {"currency": "BRL"},
         "best_flights": [
@@ -43,7 +36,7 @@ class TestSerpApi(unittest.TestCase):
         self.assertIn("departure_id=GRU", url)
         self.assertIn("arrival_id=POA", url)
 
-    def test_one_way_uses_deep_search_price_sort_and_booking_url(self) -> None:
+    def test_one_way_uses_deep_search_and_price_sort_without_booking_lookup(self) -> None:
         calls: list[dict[str, str]] = []
         provider = SerpApiProvider(api_key="test", fetch_json=lambda params: calls.append(params) or request_data(params))
         request = FlightRequest("GRU", "POA", date(2026, 11, 6), sort_by_price=True, currency="BRL")
@@ -52,17 +45,13 @@ class TestSerpApi(unittest.TestCase):
 
         self.assertEqual(len(result.outbound), 1)
         option = result.outbound[0]
-        self.assertEqual(option.booking_url, "https://cheap.example")
         self.assertEqual(option.departure, datetime(2026, 11, 6, 8))
         self.assertEqual(calls[0]["type"], "2")
         self.assertEqual(calls[0]["sort_by"], "2")
         self.assertEqual(calls[0]["deep_search"], "true")
         self.assertNotIn("hl", calls[0])
         self.assertNotIn("gl", calls[0])
-        self.assertEqual(calls[1]["departure_id"], "GRU")
-        self.assertEqual(calls[1]["arrival_id"], "POA")
-        self.assertEqual(calls[1]["outbound_date"], "2026-11-06")
-        self.assertEqual(calls[1]["type"], "2")
+        self.assertEqual(len(calls), 1)
 
     def test_round_trip_runs_two_independent_one_way_searches(self) -> None:
         calls: list[dict[str, str]] = []

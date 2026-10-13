@@ -17,8 +17,6 @@ class FlightOption:
     price: float
     currency: str
     stops: int
-    booking_url: str | None = None
-    booking_token: str | None = None
 
 
 @dataclass(frozen=True)
