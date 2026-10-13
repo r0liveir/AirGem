@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
+import sys
 from dataclasses import asdict
 from typing import Any
 
+from airgem.agent import FlightAgent
 from airgem.core import parse_flight_request
-from airgem.itinerary import build_itineraries, itinerary_to_dict
+from airgem.itinerary import itinerary_to_dict
 from airgem.llm import OllamaProvider, OpenRouterProvider
 from airgem.search import FlightSearchProvider, FlightSearchResult, SerpApiProvider
 
@@ -17,18 +20,14 @@ def run(prompt: str, llm_provider: Any, search_provider: FlightSearchProvider) -
     if request.missing:
         missing = ", ".join(request.missing)
         raise ValueError(f"missing required flight fields: {missing}")
-    result = search_provider.search(request)
-    itineraries = build_itineraries(
-        result,
-        max_price=request.max_price,
-        max_stops=request.max_stops,
-        departure_date=request.departure_date,
-        return_date=request.return_date,
-    )
+    agent_result = FlightAgent(llm_provider, search_provider).run(prompt, request)
     return {
         "request": request.to_dict(),
-        "itineraries": [itinerary_to_dict(item) for item in itineraries],
-        **_search_result_to_dict(result),
+        "itineraries": [itinerary_to_dict(item) for item in agent_result.itineraries],
+        "selected": itinerary_to_dict(agent_result.selected) if agent_result.selected else None,
+        "agent_state": agent_result.state.value,
+        **_search_result_to_dict(agent_result.search_result),
+        "notes": list(agent_result.search_result.notes + agent_result.notes),
     }
 
 
@@ -110,7 +109,15 @@ def main() -> None:
         default=os.getenv("LLM_PROVIDER", "ollama"),
     )
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    parser.add_argument("--debug", action="store_true", help="print agent decision trace")
     args = parser.parse_args()
+    if args.debug:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="DEBUG %(name)s: %(message)s",
+            stream=sys.stdout,
+            force=True,
+        )
 
     try:
         llm_provider = OllamaProvider() if args.llm_provider == "ollama" else OpenRouterProvider()

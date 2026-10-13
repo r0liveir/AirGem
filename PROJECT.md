@@ -121,14 +121,18 @@ SENTRY_DSN="your_sentry_dsn_here"
 
 ## Usage
 
-Current slice parses intent, then searches exact-date flights through SerpAPI:
+Current slice parses intent, searches exact-date flights through SerpAPI, then runs a bounded candidate-selection loop:
 
 ```bash
 uv run airgem "Need cheap travel from GRU to POA on 2026-11-06, returning 2026-11-08"
 uv run airgem --provider openrouter "Find the cheapest nonstop flight from GRU to POA"
 # Machine-readable output:
 uv run airgem --json "Find cheap flights from GRU to POA on 2026-11-06"
+# Agent state/tool trace:
+uv run airgem --debug --json "Find cheap flights from GRU to POA on 2026-11-06"
 ```
+
+`--debug` prints safe state/tool decisions to stdout. It does not print hidden model reasoning, API keys, or SerpAPI tokens; do not combine it with machine parsing.
 
 Search from Python:
 
@@ -193,6 +197,7 @@ airgem/
 │   ├── core/
 │   │   ├── flight_request.py # Validated normalized request
 │   │   └── parse.py           # Natural language → request
+│   ├── agent.py                # Bounded candidate-selection state machine
 │   ├── itinerary.py            # Deterministic pairing and hard constraints
 │   ├── pareto.py               # Price/duration/stops candidate filtering
 │   └── search/

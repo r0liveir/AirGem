@@ -66,7 +66,7 @@ def build_itineraries(
     else:
         itineraries = tuple(
             Itinerary(
-                id=f"one-way-{index}",
+                id=option.candidate_id or f"one-way-{index}",
                 outbound=option,
                 inbound=None,
                 price=option.price,

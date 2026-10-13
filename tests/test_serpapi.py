@@ -53,6 +53,7 @@ class TestSerpApi(unittest.TestCase):
         self.assertEqual(option.departure, datetime(2026, 11, 6, 8))
         self.assertEqual(option.airline, "Test Air")
         self.assertEqual(option.duration_minutes, 120)
+        self.assertEqual(option.candidate_id, "candidate-0")
         self.assertEqual(calls[0]["type"], "2")
         self.assertEqual(calls[0]["sort_by"], "2")
         self.assertEqual(calls[0]["deep_search"], "true")

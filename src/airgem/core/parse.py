@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import date
 from typing import Any
@@ -17,6 +18,8 @@ from the supplied current date. Use null when user did not provide a value. Neve
 max_stops is 0 for nonstop, otherwise a non-negative integer. max_price is numeric.
 Set sort_by_price true for requests emphasizing cheap/lowest-price flights.
 """
+
+logger = logging.getLogger(__name__)
 
 
 def parse_flight_request(
@@ -38,7 +41,9 @@ def parse_flight_request(
         raise ValueError(f"LLM returned invalid JSON: {raw_text!r}") from error
     if not isinstance(data, dict):
         raise ValueError("LLM JSON must be an object")
-    return FlightRequest.from_dict(data)
+    request = FlightRequest.from_dict(data)
+    logger.debug("intent parsed request=%s", request.to_dict())
+    return request
 
 
 def _json_text(value: str) -> str:

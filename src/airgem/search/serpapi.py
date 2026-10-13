@@ -64,7 +64,7 @@ class SerpApiProvider:
             flight_type="1",
         )
         params["return_date"] = request.return_date.isoformat()
-        options = self._search_options(params, request, candidate_prefix="candidate")
+        options = self._search_options(params, request, candidate_prefix="candidate", store_tokens=True)
         return FlightSearchResult(
             outbound=options,
             round_trip=True,
@@ -113,7 +113,7 @@ class SerpApiProvider:
             request=request,
             flight_type="2",
         )
-        return self._search_options(params, request)
+        return self._search_options(params, request, candidate_prefix="candidate")
 
     def _base_params(
         self,
@@ -147,6 +147,7 @@ class SerpApiProvider:
         params: dict[str, str],
         request: FlightRequest,
         candidate_prefix: str | None = None,
+        store_tokens: bool = False,
     ) -> tuple[FlightOption, ...]:
         payload = self._fetch_json(params)
         _raise_api_error(payload)
@@ -158,7 +159,7 @@ class SerpApiProvider:
             if option is None:
                 continue
             options.append(option)
-            if candidate_prefix == "candidate":
+            if store_tokens:
                 token = item.get("departure_token")
                 if isinstance(token, str) and token:
                     self._round_trip_candidates[option.candidate_id or ""] = (option, token, request)

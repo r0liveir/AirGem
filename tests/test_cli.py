@@ -45,6 +45,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(result["outbound"][0]["airline"], "Test Air")
         self.assertNotIn("booking_url", result["outbound"][0])
         self.assertEqual(result["itineraries"][0]["price"], 100)
+        self.assertEqual(result["selected"]["id"], "one-way-0")
 
         output = _format_human(result)
         self.assertIn("GRU → POA", output)
