@@ -31,6 +31,8 @@ class AgentResult:
     itineraries: tuple[Itinerary, ...]
     selected: Itinerary | None
     notes: tuple[str, ...] = ()
+    alternatives: tuple[Itinerary, ...] = ()
+    deferred_outbound: tuple[Itinerary, ...] = ()
 
 
 class FlightAgent:
@@ -72,7 +74,14 @@ class FlightAgent:
         outbound = self._select("select_candidate", prompt, itineraries)
         if not result.round_trip:
             self._set_state(AgentState.COMPLETE)
-            return AgentResult(self.state, result, itineraries, outbound, self._notes)
+            return AgentResult(
+                self.state,
+                result,
+                itineraries,
+                outbound,
+                self._notes,
+                _without(itineraries, outbound),
+            )
 
         if not hasattr(self.search, "expand_round_trip"):
             raise ValueError("search provider cannot expand round trips")
@@ -90,12 +99,22 @@ class FlightAgent:
                 (),
                 None,
                 self._notes + ("Selected candidate returned no valid return flights.",),
+                (),
+                _without(itineraries, outbound),
             )
 
         self._set_state(AgentState.SELECTING_RETURN)
         selected = self._select("select_return", prompt, expanded_itineraries)
         self._set_state(AgentState.COMPLETE)
-        return AgentResult(self.state, expanded, expanded_itineraries, selected, self._notes)
+        return AgentResult(
+            self.state,
+            expanded,
+            expanded_itineraries,
+            selected,
+            self._notes,
+            _without(expanded_itineraries, selected),
+            _without(itineraries, outbound),
+        )
 
     @property
     def _notes(self) -> tuple[str, ...]:
@@ -184,6 +203,10 @@ def _candidate_to_dict(itinerary: Itinerary) -> dict[str, Any]:
         "outbound_departure": values["outbound"]["departure"],
         "inbound_departure": values["inbound"]["departure"] if values["inbound"] else None,
     }
+
+
+def _without(candidates: tuple[Itinerary, ...], excluded: Itinerary) -> tuple[Itinerary, ...]:
+    return tuple(candidate for candidate in candidates if candidate.id != excluded.id)
 
 
 def _action_candidate_id(response: str, expected_action: str) -> str | None:

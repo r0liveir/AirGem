@@ -57,7 +57,10 @@ class RoundTripSearch:
 
     def search(self, request: FlightRequest) -> FlightSearchResult:
         return FlightSearchResult(
-            outbound=(option("candidate-0", 180, 8),),
+            outbound=(
+                option("candidate-0", 180, 8),
+                option("candidate-1", 200, 10, stops=1, duration_minutes=60),
+            ),
             round_trip=True,
             price_is_total=True,
         )
@@ -97,6 +100,8 @@ class TestFlightAgent(unittest.TestCase):
 
         self.assertEqual(result.state, AgentState.COMPLETE)
         self.assertEqual(result.selected.id, "candidate-1")
+        self.assertEqual(tuple(item.id for item in result.alternatives), ("candidate-0",))
+        self.assertEqual(result.deferred_outbound, ())
 
     def test_round_trip_expands_selected_candidate_then_selects_return(self) -> None:
         search = RoundTripSearch()
@@ -115,6 +120,8 @@ class TestFlightAgent(unittest.TestCase):
         self.assertEqual(search.expanded_id, "candidate-0")
         self.assertEqual(result.selected.id, "candidate-0/return-1")
         self.assertEqual(result.selected.price, 180)
+        self.assertEqual(tuple(item.id for item in result.alternatives), ("candidate-0/return-0",))
+        self.assertEqual(tuple(item.id for item in result.deferred_outbound), ("candidate-1",))
 
     def test_invalid_action_falls_back_to_first_pareto_candidate(self) -> None:
         agent = FlightAgent(FakeLLM(["not json"]), OneWaySearch())
@@ -122,3 +129,4 @@ class TestFlightAgent(unittest.TestCase):
         result = agent.run("cheap flight", self.request)
 
         self.assertEqual(result.selected.id, "candidate-0")
+        self.assertEqual(tuple(item.id for item in result.alternatives), ("candidate-1",))

@@ -29,6 +29,17 @@ class FakeSearch:
                     stops=0,
                     airline="Test Air",
                 ),
+                FlightOption(
+                    provider="fake",
+                    origin="GRU",
+                    destination="POA",
+                    departure=datetime(2026, 11, 6, 10),
+                    arrival=datetime(2026, 11, 6, 11),
+                    price=120,
+                    currency="USD",
+                    stops=1,
+                    airline="Test Air",
+                ),
             )
         )
 
@@ -46,10 +57,14 @@ class TestCli(unittest.TestCase):
         self.assertNotIn("booking_url", result["outbound"][0])
         self.assertEqual(result["itineraries"][0]["price"], 100)
         self.assertEqual(result["selected"]["id"], "one-way-0")
+        self.assertEqual(result["alternatives"], ["one-way-1"])
+        self.assertEqual(result["deferred_outbound"], [])
 
         output = _format_human(result)
         self.assertIn("GRU → POA", output)
         self.assertIn("Test Air · USD 100.00 · nonstop · 2h 00m", output)
+        self.assertIn("★ 1.", output)
+        self.assertIn("Alternatives: #2", output)
 
     def test_run_rejects_incomplete_request_before_search(self) -> None:
         class MissingLLM(FakeLLM):

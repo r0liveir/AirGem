@@ -53,6 +53,8 @@ def run(
         "request": request.to_dict(),
         "itineraries": [itinerary_to_dict(item) for item in agent_result.itineraries],
         "selected": itinerary_to_dict(agent_result.selected) if agent_result.selected else None,
+        "alternatives": [item.id for item in agent_result.alternatives],
+        "deferred_outbound": [itinerary_to_dict(item) for item in agent_result.deferred_outbound],
         "agent_state": agent_result.state.value,
         **_search_result_to_dict(agent_result.search_result),
         "notes": notes,
@@ -85,6 +87,7 @@ def _format_human(payload: dict[str, Any]) -> str:
     lines = [f"{route} · {dates} · {request['currency']}", ""]
 
     itineraries = payload["itineraries"]
+    selected_id = payload["selected"]["id"] if payload["selected"] else None
     if not itineraries:
         lines.append("No flights found.")
     for index, itinerary in enumerate(itineraries, start=1):
@@ -98,14 +101,35 @@ def _format_human(payload: dict[str, Any]) -> str:
         status = " · return details pending" if itinerary["return_pending"] else ""
         if itinerary["estimated"]:
             status = " · estimated round trip"
+        marker = "★ " if itinerary["id"] == selected_id else ""
         lines.append(
-            f"{index}. {airline} · {itinerary['currency']} {itinerary['price']:.2f} · "
+            f"{marker}{index}. {airline} · {itinerary['currency']} {itinerary['price']:.2f} · "
             f"{stops} · {duration}{status}"
         )
         lines.append(f"   {outbound['origin']} → {outbound['destination']} · {outbound['departure']}")
         if itinerary["inbound"]:
             inbound = itinerary["inbound"]
             lines.append(f"   {inbound['origin']} → {inbound['destination']} · {inbound['departure']}")
+
+    if payload["alternatives"]:
+        itinerary_numbers = {itinerary["id"]: index for index, itinerary in enumerate(itineraries, start=1)}
+        numbers = [
+            f"#{itinerary_numbers[item_id]}"
+            for item_id in payload["alternatives"]
+            if item_id in itinerary_numbers
+        ]
+        if numbers:
+            lines.extend(["", f"Alternatives: {', '.join(numbers)}"])
+
+    if payload["deferred_outbound"]:
+        lines.extend(["", "More outbound options (return details pending):"])
+        for itinerary in payload["deferred_outbound"]:
+            outbound = itinerary["outbound"]
+            airline = outbound["airline"] or "Unknown airline"
+            lines.append(
+                f"- {itinerary['id']} · {airline} · {itinerary['currency']} {itinerary['price']:.2f}"
+            )
+            lines.append(f"  {outbound['origin']} → {outbound['destination']} · {outbound['departure']}")
 
     if payload["notes"]:
         lines.extend(["", "Notes:"])
