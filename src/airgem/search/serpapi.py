@@ -80,10 +80,20 @@ class SerpApiProvider:
             outbound, departure_token, request = self._round_trip_candidates[candidate_id]
         except KeyError as error:
             raise ValueError(f"unknown round-trip candidate: {candidate_id}") from error
+        if request.origin is None or request.destination is None or request.departure_date is None:
+            raise ValueError("round-trip candidate missing route or departure date")
+        if request.return_date is None:
+            raise ValueError("round-trip candidate missing return date")
 
         params = {
             "engine": "google_flights",
             "api_key": self.api_key,
+            "type": "1",
+            "departure_id": request.origin,
+            "arrival_id": request.destination,
+            "outbound_date": request.departure_date.isoformat(),
+            "return_date": request.return_date.isoformat(),
+            "deep_search": str(self.deep_search).lower(),
             "departure_token": departure_token,
         }
         if request.currency:

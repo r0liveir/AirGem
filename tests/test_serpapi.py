@@ -7,7 +7,7 @@ from airgem.search.serpapi import _request_url
 
 
 def request_data(params: dict[str, str]) -> dict:
-    outbound_date = params.get("outbound_date", "2026-11-08")
+    outbound_date = "2026-11-08" if "departure_token" in params else params["outbound_date"]
     departure_id = params.get("departure_id", "POA")
     arrival_id = params.get("arrival_id", "GRU")
     return {
@@ -93,6 +93,10 @@ class TestSerpApi(unittest.TestCase):
 
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[1]["departure_token"], "token-2026-11-06")
+        self.assertEqual(calls[1]["departure_id"], "GRU")
+        self.assertEqual(calls[1]["arrival_id"], "POA")
+        self.assertEqual(calls[1]["outbound_date"], "2026-11-06")
+        self.assertEqual(calls[1]["return_date"], "2026-11-08")
         self.assertEqual(expanded.outbound[0].candidate_id, "candidate-0")
         self.assertEqual(expanded.inbound[0].candidate_id, "candidate-0/return-0")
         self.assertTrue(expanded.price_is_total)

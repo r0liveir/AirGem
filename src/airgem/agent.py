@@ -102,18 +102,30 @@ class FlightAgent:
 
         self._turns += 1
         logger.debug("LLM selection turn=%d action=%s candidates=%d", self._turns, action, len(candidates))
+        candidate_ids = [candidate.id for candidate in candidates]
         response = self.llm.complete(
             system=(
-                "You select flight candidates. Return JSON only. "
-                f"Required action: {action}. Use one candidate id from the list. "
-                "Never invent IDs. Prefer user-stated priorities; otherwise choose cheapest."
+                "You are a flight candidate selector. "
+                "Choose exactly one candidate from an allowed list. "
+                "Return one JSON object only. No markdown. No explanation. No extra keys. "
+                f'The action value must be exactly "{action}". '
+                "The candidate_id value must be copied exactly from the allowed IDs. "
+                "Never return an index, price, airline, or invented ID. "
+                "Prefer the user's stated priorities; otherwise choose lowest price, "
+                "then fewest stops, then shortest duration."
             ),
-            user=json.dumps(
-                {
-                    "request": prompt,
-                    "candidates": [_candidate_to_dict(candidate) for candidate in candidates],
-                    "output": {"action": action, "candidate_id": "..."},
-                }
+            user=(
+                f"User request: {prompt}\n"
+                f"Required action: {action}\n"
+                "Allowed candidate IDs:\n"
+                + "\n".join(f"- {candidate_id}" for candidate_id in candidate_ids)
+                + "\nCandidate details:\n"
+                + "\n".join(
+                    json.dumps(_candidate_to_dict(candidate), separators=(",", ":"))
+                    for candidate in candidates
+                )
+                + "\nReturn exactly this shape, replacing candidate-0 with one allowed ID:\n"
+                + json.dumps({"action": action, "candidate_id": candidate_ids[0]})
             ),
         )
         candidate_id = _action_candidate_id(response, action)
