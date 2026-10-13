@@ -1,4 +1,4 @@
-# AirGem
+# ✈️AirGem
 
 > A privacy-first flight-search copilot that finds flights around your real
 > calendar.
@@ -8,7 +8,7 @@ flight options. It keeps calendar data local, uses Gemma for semantic work,
 and keeps search, validation, availability checks, and trade-off filtering
 deterministic.
 
-## Hacktoberfest Week 2: Side Hustle
+## 🚀 Hacktoberfest Week 2: Side Hustle
 
 AirGem is being built as a submission for the
 [Hacktoberfest Open-Source AI Challenge: Week 2 — Side Hustle](https://dev.to/devteam/join-the-hacktoberfest-open-source-ai-challenge-side-hustle-2550-in-prizes-across-18-winners-55ba).
@@ -333,4 +333,4 @@ objects used by the optimizer.
 
 ## License
 
-AirGem is intended to be released under the MIT License.
+AirGem is released under the MIT License.
