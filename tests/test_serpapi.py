@@ -7,6 +7,17 @@ from airgem.search.serpapi import _request_url
 
 
 def request_data(params: dict[str, str]) -> dict:
+    if "booking_token" in params:
+        return {
+            "booking_options": [
+                {
+                    "together": {
+                        "book_with": "Test Air",
+                        "booking_request": {"url": "https://booking.example/flight"},
+                    }
+                }
+            ]
+        }
     outbound_date = "2026-11-08" if "departure_token" in params else params["outbound_date"]
     departure_id = params.get("departure_id", "POA")
     arrival_id = params.get("arrival_id", "GRU")
@@ -24,6 +35,7 @@ def request_data(params: dict[str, str]) -> dict:
                 "price": 100,
                 "total_duration": 120,
                 "departure_token": f"token-{outbound_date}",
+                "booking_token": f"booking-{outbound_date}",
             }
         ],
     }
@@ -77,6 +89,20 @@ class TestSerpApi(unittest.TestCase):
         self.assertEqual(calls[0]["return_date"], "2026-11-08")
         self.assertEqual(result.outbound[0].candidate_id, "candidate-0")
         self.assertTrue(result.price_is_total)
+
+    def test_resolves_direct_booking_url_for_selected_candidate(self) -> None:
+        calls: list[dict[str, str]] = []
+        provider = SerpApiProvider(
+            api_key="test",
+            fetch_json=lambda params: calls.append(params) or request_data(params),
+        )
+        request = FlightRequest("GRU", "POA", date(2026, 11, 6), sort_by_price=True)
+
+        result = provider.search(request)
+        url = provider.resolve_booking_url((result.outbound[0].candidate_id or "",))
+
+        self.assertEqual(url, "https://booking.example/flight")
+        self.assertEqual(calls[1]["booking_token"], "booking-2026-11-06")
 
     def test_expands_only_selected_round_trip_candidate(self) -> None:
         calls: list[dict[str, str]] = []

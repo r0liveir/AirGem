@@ -20,6 +20,7 @@ class Itinerary:
     stops: int | None
     estimated: bool = False
     return_pending: bool = False
+    booking_url: str | None = None
 
 
 def build_itineraries(

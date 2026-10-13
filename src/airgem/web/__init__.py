@@ -8,6 +8,7 @@ from html import escape
 from pathlib import Path
 from typing import Annotated, Literal
 from uuid import uuid4
+from urllib.parse import urlsplit
 
 from fastapi import File, Form, FastAPI, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -77,6 +78,7 @@ _JOB_STEPS = (
     ("expanding_return", "Expand return"),
     ("evaluating_return_options", "Evaluate return"),
     ("selecting_return", "Select return"),
+    ("fetching_booking", "Fetch booking link"),
 )
 _STAGE_DETAILS = {
     "queued": (0, "Getting ready…"),
@@ -88,6 +90,7 @@ _STAGE_DETAILS = {
     "expanding_return": (80, "Expanding return options…"),
     "evaluating_return_options": (87, "Evaluating return options…"),
     "selecting_return": (94, "Selecting the best return…"),
+    "fetching_booking": (97, "Fetching a direct booking link…"),
     "complete": (100, "Results are ready."),
     "error": (100, "AirGem could not complete the search."),
 }
@@ -365,6 +368,8 @@ def _itinerary_card(
                 f'<input type="hidden" name="prompt" value="{_attr(action.get("prompt", ""))}">'
                 f'<button class="secondary" type="submit">{_text(action.get("label", "Explore"))}</button></form>'
             )
+    booking = _booking_link(item.get("booking_url")) if item_id == selected_id else ""
+    action_html = "".join(actions) + booking
     outbound = item.get("outbound")
     inbound = item.get("inbound")
     if not isinstance(outbound, dict):
@@ -379,7 +384,7 @@ def _itinerary_card(
       <div class="price">{_text(item.get("currency", "USD"))} {float(item.get("price", 0)):.2f}</div>
       {_leg_html("Outbound", outbound)}
       {_leg_html("Return", inbound) if isinstance(inbound, dict) else '<div class="muted">Return details pending</div>' if item.get("return_pending") else ''}
-      {f'<div class="flight-actions">{"".join(actions)}</div>' if actions else ''}
+      {f'<div class="flight-actions">{action_html}</div>' if action_html else ''}
     </article>
     """
 
@@ -437,6 +442,18 @@ def _text(value: object) -> str:
 
 def _attr(value: object) -> str:
     return escape(str(value), quote=True)
+
+
+def _booking_link(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    parts = urlsplit(value)
+    if parts.scheme != "https" or not parts.netloc:
+        return ""
+    return (
+        f'<a class="booking-link" href="{_attr(value)}" target="_blank" '
+        'rel="noopener noreferrer">Open booking ↗</a>'
+    )
 
 
 def _error_fragment(message: str) -> str:

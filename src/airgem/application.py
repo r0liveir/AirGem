@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, time, timedelta
 from typing import Any, Callable, Literal
 
@@ -71,11 +71,49 @@ def start_session(
         buffer_minutes=buffer_minutes,
         stage_callback=stage_callback,
     )
+    result = _attach_booking_url(result, search_provider, stage_callback)
     application_session = ApplicationSession(agent, session, busy_intervals, buffer_minutes)
     application_session.messages.append(ChatMessage("user", prompt))
     payload = result_to_payload(result, request, busy_intervals, buffer_minutes)
     application_session.messages.append(ChatMessage("assistant", payload["agent_message"]))
     return application_session, _session_payload(application_session, payload)
+
+
+def _attach_booking_url(
+    result: AgentResult,
+    search_provider: FlightSearchProvider,
+    stage_callback: Callable[[str], None] | None,
+) -> AgentResult:
+    if result.selected is None or result.selected.inbound is not None:
+        # ponytail: one-way links first; round-trip pinning needs flight numbers and
+        # selected_flights_json before it can safely produce a booking action.
+        return result
+    resolver = getattr(search_provider, "resolve_booking_url", None)
+    if not callable(resolver):
+        return result
+    candidate_ids = tuple(
+        candidate_id
+        for candidate_id in (
+            result.selected.outbound.candidate_id,
+            result.selected.inbound.candidate_id if result.selected.inbound else None,
+        )
+        if candidate_id
+    )
+    if not candidate_ids:
+        return result
+    if stage_callback is not None:
+        stage_callback("fetching_booking")
+    try:
+        booking_url = resolver(candidate_ids)
+    except (RuntimeError, ValueError):
+        return result
+    if not isinstance(booking_url, str):
+        return result
+    selected = replace(result.selected, booking_url=booking_url)
+    itineraries = tuple(
+        selected if itinerary.id == selected.id else itinerary for itinerary in result.itineraries
+    )
+    return replace(result, itineraries=itineraries, selected=selected)
 
 
 def continue_session(

@@ -39,6 +39,9 @@ class FlightSearchProvider(Protocol):
     def search(self, request: FlightRequest) -> FlightSearchResult:
         """Return verified flight options for normalized request."""
 
+    def resolve_booking_url(self, candidate_ids: tuple[str, ...]) -> str | None:
+        """Return a direct HTTPS booking URL for selected candidate IDs, if available."""
+
 
 def search_dates(request: FlightRequest) -> tuple[date, date | None]:
     """Shared guard before provider adapters are called."""

@@ -35,12 +35,14 @@ class SerpApiProvider:
         self.timeout = timeout
         self._fetch_json = fetch_json or self._get_json
         self._round_trip_candidates: dict[str, tuple[FlightOption, str, FlightRequest]] = {}
+        self._booking_tokens: dict[str, str] = {}
         if not self.api_key:
             raise ValueError("SERPAPI_API_KEY is required for SerpApiProvider")
 
     def search(self, request: FlightRequest) -> FlightSearchResult:
         _require_route(request)
         self._round_trip_candidates.clear()
+        self._booking_tokens.clear()
         if request.return_date is not None:
             return self.search_round_trip(request)
         outbound = self.search_one_way(
@@ -56,6 +58,7 @@ class SerpApiProvider:
         if request.return_date is None:
             raise ValueError("return_date required for round-trip search")
         self._round_trip_candidates.clear()
+        self._booking_tokens.clear()
         params = self._base_params(
             departure_id=request.origin,
             arrival_id=request.destination,
@@ -98,7 +101,12 @@ class SerpApiProvider:
         }
         if request.currency:
             params["currency"] = request.currency
-        inbound = self._search_options(params, request, candidate_prefix=f"{candidate_id}/return")
+        inbound = self._search_options(
+            params,
+            request,
+            candidate_prefix=f"{candidate_id}/return",
+            store_tokens=True,
+        )
         return FlightSearchResult(
             outbound=(outbound,),
             inbound=inbound,
@@ -123,7 +131,31 @@ class SerpApiProvider:
             request=request,
             flight_type="2",
         )
-        return self._search_options(params, request, candidate_prefix="candidate")
+        return self._search_options(
+            params,
+            request,
+            candidate_prefix="candidate",
+            store_tokens=True,
+        )
+
+    def resolve_booking_url(self, candidate_ids: tuple[str, ...]) -> str | None:
+        """Fetch a direct booking link for the selected candidate, when available."""
+        for candidate_id in reversed(candidate_ids):
+            booking_token = self._booking_tokens.get(candidate_id)
+            if not booking_token:
+                continue
+            payload = self._fetch_json(
+                {
+                    "engine": "google_flights",
+                    "api_key": self.api_key or "",
+                    "booking_token": booking_token,
+                }
+            )
+            _raise_api_error(payload)
+            url = _direct_booking_url(payload)
+            if url is not None:
+                return url
+        return None
 
     def _base_params(
         self,
@@ -169,6 +201,9 @@ class SerpApiProvider:
             if option is None:
                 continue
             options.append(option)
+            booking_token = item.get("booking_token")
+            if candidate_id and isinstance(booking_token, str) and booking_token:
+                self._booking_tokens[candidate_id] = booking_token
             if store_tokens:
                 token = item.get("departure_token")
                 if isinstance(token, str) and token:
@@ -260,6 +295,43 @@ def _raise_api_error(payload: dict[str, Any]) -> None:
     error = payload.get("error")
     if error:
         raise RuntimeError(f"SerpApi returned an error: {error}")
+
+
+def _direct_booking_url(payload: dict[str, Any]) -> str | None:
+    options = payload.get("booking_options")
+    if not isinstance(options, list):
+        return None
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        candidates: list[Any] = [option]
+        for group_name in ("together", "separate", "departing", "returning"):
+            group = option.get(group_name)
+            if isinstance(group, list):
+                candidates.extend(group)
+            elif isinstance(group, dict):
+                candidates.append(group)
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            request = candidate.get("booking_request")
+            if isinstance(request, dict) and not request.get("post_data"):
+                url = _https_url(request.get("url"))
+                if url is not None:
+                    return url
+            url = _https_url(candidate.get("url"))
+            if url is not None:
+                return url
+    return None
+
+
+def _https_url(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    parts = urlsplit(value)
+    if parts.scheme != "https" or not parts.netloc:
+        return None
+    return value
 
 
 def _require_route(request: FlightRequest) -> None:
