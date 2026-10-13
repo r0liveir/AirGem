@@ -2,12 +2,14 @@
 name = "airgem"
 version = "0.1.0"
 description = "Privacy-first flight search copilot"
-readme = "README.md"
+readme = "PROJECT.md"
 authors = [
     { name = "wate", email = "ryan.o2712@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "python-dotenv>=1.0.0",
+]
 
 [project.scripts]
 airgem = "airgem.cli:main"
