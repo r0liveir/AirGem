@@ -117,6 +117,21 @@
     .spinner { animation: spin .8s linear infinite; border: 2px solid color-mix(in srgb, var(--blue) 22%, transparent); border-radius: 50%; border-top-color: var(--blue); height: .95rem; width: .95rem; }
     .htmx-request button[type="submit"] { cursor: wait; opacity: .78; }
     .workspace { margin-top: 1.5rem; }
+    .agent-job { align-items: start; display: grid; gap: 1.1rem; grid-template-columns: auto minmax(0, 1fr); margin-top: 1.5rem; padding: 1.5rem; }
+    .agent-spinner { align-items: center; background: var(--soft-blue); border-radius: 1rem; display: flex; height: 3.25rem; justify-content: center; width: 3.25rem; }
+    .agent-spinner .spinner { height: 1.35rem; width: 1.35rem; }
+    .agent-job-copy { min-width: 0; }
+    .job-kicker { color: var(--muted); font-size: .76rem; font-weight: 800; letter-spacing: .08em; margin-bottom: .2rem; text-transform: uppercase; }
+    .job-stage { font-size: 1.1rem; font-weight: 700; margin-bottom: .8rem; }
+    .job-progress { background: var(--line); border-radius: 999px; height: .35rem; overflow: hidden; }
+    .job-progress span { background: linear-gradient(90deg, var(--blue), var(--cyan)); border-radius: inherit; display: block; height: 100%; transition: width .35s ease; }
+    .job-steps { display: flex; flex-wrap: wrap; gap: .55rem 1rem; list-style: none; margin: 1rem 0 0; padding: 0; }
+    .job-steps li { align-items: center; color: var(--muted); display: inline-flex; font-size: .78rem; gap: .35rem; }
+    .job-steps li.active { color: var(--blue); font-weight: 750; }
+    .job-steps li.done { color: var(--ink); }
+    .step-dot { background: var(--line); border-radius: 50%; height: .42rem; width: .42rem; }
+    .job-steps li.active .step-dot { animation: pulse 1.2s ease-in-out infinite; background: var(--blue); box-shadow: 0 0 0 .2rem color-mix(in srgb, var(--blue) 18%, transparent); }
+    .job-steps li.done .step-dot { background: var(--green); }
     .chat { display: grid; gap: .7rem; margin-bottom: 1.5rem; }
     .message { animation: rise-in .4s ease both; border-radius: .9rem; max-width: 85%; padding: .75rem .95rem; white-space: pre-wrap; }
     .user-message { background: var(--soft-blue); border-bottom-right-radius: .25rem; justify-self: end; }
@@ -146,6 +161,7 @@
     .follow-up-row input { flex: 1; }
     .empty { color: var(--muted); padding: 1rem 0; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse { 50% { opacity: .45; transform: scale(.8); } }
     @keyframes rise-in { from { opacity: 0; transform: translateY(.5rem); } to { opacity: 1; transform: translateY(0); } }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
@@ -157,6 +173,8 @@
       .search-grid, .calendar-row { grid-template-columns: 1fr; }
       .message { max-width: 100%; }
       .follow-up-row { align-items: stretch; flex-direction: column; }
+      .agent-job { grid-template-columns: 1fr; }
+      .agent-spinner { height: 2.6rem; width: 2.6rem; }
     }
   </style>
 </head>
@@ -227,6 +245,49 @@
       localStorage.setItem("airgem-theme", dark ? "dark" : "light");
       updateThemeButton();
     });
+
+    function watchAgentJobs() {
+      document.querySelectorAll("[data-job-id]").forEach((job) => {
+        if (job.dataset.polling === "true") return;
+        job.dataset.polling = "true";
+        const jobId = encodeURIComponent(job.dataset.jobId);
+        const workspace = document.querySelector("#workspace");
+
+        async function poll() {
+          try {
+            const response = await fetch(`/ui/jobs/${jobId}`);
+            if (!response.ok) throw new Error("status request failed");
+            const payload = await response.json();
+            const stage = job.querySelector("[data-job-stage]");
+            const progress = job.querySelector("[data-job-progress]");
+            const steps = [...job.querySelectorAll("[data-stage]")];
+            const currentIndex = steps.findIndex((step) => step.dataset.stage === payload.stage);
+            const completed = new Set(payload.completed_stages || []);
+
+            if (stage) stage.textContent = payload.label;
+            if (progress) progress.style.width = `${payload.progress}%`;
+            steps.forEach((step, index) => {
+              step.classList.toggle("active", index === currentIndex);
+              step.classList.toggle("done", completed.has(step.dataset.stage));
+            });
+
+            if ((payload.status === "complete" || payload.status === "error") && workspace && payload.html) {
+              workspace.innerHTML = payload.html;
+              return;
+            }
+          } catch (_error) {
+            const stage = job.querySelector("[data-job-stage]");
+            if (stage) stage.textContent = "Reconnecting to AirGem…";
+          }
+          window.setTimeout(poll, 350);
+        }
+
+        poll();
+      });
+    }
+
+    document.addEventListener("htmx:afterSwap", watchAgentJobs);
+    watchAgentJobs();
   </script>
 </body>
 </html>

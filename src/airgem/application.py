@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, time, timedelta
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from airgem.agent import AgentResult, AgentSession, FlightAgent
 from airgem.calendar import BusyInterval, load_ics, parse_ics
@@ -38,7 +38,10 @@ def start_session(
     buffer_minutes: int = 0,
     calendar_path: str | None = None,
     calendar_text: str | None = None,
+    stage_callback: Callable[[str], None] | None = None,
 ) -> tuple[ApplicationSession, dict[str, Any]]:
+    if stage_callback is not None:
+        stage_callback("parsing_request")
     request = parse_flight_request(prompt, llm_provider)
     if request.missing:
         missing = ", ".join(request.missing)
@@ -46,6 +49,8 @@ def start_session(
     if calendar_path and calendar_text:
         raise ValueError("provide either calendar_path or calendar_text, not both")
     if calendar_path or calendar_text:
+        if stage_callback is not None:
+            stage_callback("loading_calendar")
         calendar_end_date = request.return_date or request.departure_date
         calendar_start = datetime.combine(request.departure_date - timedelta(days=1), time.min)
         calendar_end = datetime.combine(calendar_end_date + timedelta(days=2), time.min)
@@ -64,6 +69,7 @@ def start_session(
         request,
         busy_intervals=busy_intervals,
         buffer_minutes=buffer_minutes,
+        stage_callback=stage_callback,
     )
     application_session = ApplicationSession(agent, session, busy_intervals, buffer_minutes)
     application_session.messages.append(ChatMessage("user", prompt))
@@ -72,8 +78,15 @@ def start_session(
     return application_session, _session_payload(application_session, payload)
 
 
-def continue_session(application_session: ApplicationSession, prompt: str) -> dict[str, Any]:
+def continue_session(
+    application_session: ApplicationSession,
+    prompt: str,
+    *,
+    stage_callback: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
     session = application_session.session
+    if stage_callback is not None:
+        session.stage_callback = stage_callback
     result = application_session.agent.continue_session(session, prompt)
     payload = result_to_payload(
         result,

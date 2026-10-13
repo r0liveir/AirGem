@@ -5,7 +5,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Callable
 
 from airgem.calendar import BusyInterval
 from airgem.core import FlightRequest
@@ -41,6 +41,7 @@ class AgentSession:
     turns: int = 0
     selection_notes: list[str] = field(default_factory=list)
     expanded_outbound_ids: set[str] = field(default_factory=set)
+    stage_callback: Callable[[str], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -86,12 +87,14 @@ class FlightAgent:
         *,
         busy_intervals: tuple[BusyInterval, ...] = (),
         buffer_minutes: int = 0,
+        stage_callback: Callable[[str], None] | None = None,
     ) -> tuple[AgentSession, AgentResult]:
         session = AgentSession(
             prompt=prompt,
             request=request,
             busy_intervals=busy_intervals,
             buffer_minutes=buffer_minutes,
+            stage_callback=stage_callback,
         )
         self._set_state(session, AgentState.SEARCHING)
         result = self.search.search(request)
@@ -102,6 +105,7 @@ class FlightAgent:
             len(result.outbound),
             len(result.inbound),
         )
+        self._stage(session, "evaluating_options")
         itineraries = _build(result, request, busy_intervals, buffer_minutes)
         logger.debug("candidate pool=%d ids=%s", len(itineraries), [item.id for item in itineraries])
         session.outbound_candidates = itineraries
@@ -161,6 +165,7 @@ class FlightAgent:
         expanded = self.search.expand_round_trip(outbound.id)  # type: ignore[attr-defined]
         session.expanded_outbound_ids.add(outbound.id)
         session.search_result = expanded
+        self._stage(session, "evaluating_return_options")
         expanded_itineraries = _build(
             expanded,
             session.request,
@@ -261,7 +266,13 @@ class FlightAgent:
     def _set_state(self, session: AgentSession, state: AgentState) -> None:
         self.state = state
         session.state = state
+        self._stage(session, state.value)
         logger.debug("state=%s", state.value)
+
+    @staticmethod
+    def _stage(session: AgentSession, stage: str) -> None:
+        if session.stage_callback is not None:
+            session.stage_callback(stage)
 
 
 def _build(
