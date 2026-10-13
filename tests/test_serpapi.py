@@ -15,6 +15,7 @@ def request_data(params: dict[str, str]) -> dict:
                     {
                         "departure_airport": {"id": params["departure_id"], "time": f"{params['outbound_date']} 08:00"},
                         "arrival_airport": {"id": params["arrival_id"], "time": f"{params['outbound_date']} 10:00"},
+                        "airline": "Test Air",
                     }
                 ],
                 "price": 100,
@@ -46,6 +47,7 @@ class TestSerpApi(unittest.TestCase):
         self.assertEqual(len(result.outbound), 1)
         option = result.outbound[0]
         self.assertEqual(option.departure, datetime(2026, 11, 6, 8))
+        self.assertEqual(option.airline, "Test Air")
         self.assertEqual(calls[0]["type"], "2")
         self.assertEqual(calls[0]["sort_by"], "2")
         self.assertEqual(calls[0]["deep_search"], "true")

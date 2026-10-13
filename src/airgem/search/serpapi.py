@@ -111,6 +111,13 @@ class SerpApiProvider:
         except (KeyError, TypeError, ValueError):
             return None
 
+        airlines = tuple(
+            dict.fromkeys(
+                str(flight["airline"])
+                for flight in flights
+                if isinstance(flight, dict) and flight.get("airline")
+            )
+        )
         return FlightOption(
             provider=self.name,
             origin=origin,
@@ -120,6 +127,7 @@ class SerpApiProvider:
             price=float(price),
             currency=currency,
             stops=max(0, len(flights) - 1),
+            airline=", ".join(airlines) or None,
         )
 
     def _get_json(self, params: dict[str, str]) -> dict[str, Any]:

@@ -27,6 +27,7 @@ class FakeSearch:
                     price=100,
                     currency="USD",
                     stops=0,
+                    airline="Test Air",
                 ),
             )
         )
@@ -41,6 +42,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(search.request.origin, "GRU")
         self.assertEqual(search.request.currency, "USD")
         self.assertEqual(result["request"]["departure_date"], "2026-11-06")
+        self.assertEqual(result["outbound"][0]["airline"], "Test Air")
         self.assertNotIn("booking_url", result["outbound"][0])
 
     def test_run_rejects_incomplete_request_before_search(self) -> None:

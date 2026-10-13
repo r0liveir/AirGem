@@ -17,6 +17,7 @@ class FlightOption:
     price: float
     currency: str
     stops: int
+    airline: str | None = None
 
 
 @dataclass(frozen=True)
