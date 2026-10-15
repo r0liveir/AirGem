@@ -89,9 +89,9 @@
     .brand-lockup h1 { margin-bottom: 0; }
     .brand-mark { align-items: center; background: var(--blue); border-radius: .45rem; color: white; display: inline-flex; height: 1.55rem; justify-content: center; letter-spacing: 0; width: 1.55rem; }
     .header-actions { align-items: center; display: flex; flex-wrap: wrap; gap: .6rem; justify-content: flex-end; }
-    .theme-toggle { align-items: center; border: 1px solid var(--line); border-radius: 999px; display: inline-flex; font-size: .78rem; gap: .4rem; padding: .42rem .7rem; }
-    .theme-toggle { background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
-    .theme-toggle:hover { border-color: var(--blue); color: var(--blue); }
+    .theme-toggle, .nav-link { align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; color: var(--ink); display: inline-flex; font: inherit; font-size: .78rem; gap: .4rem; padding: .42rem .7rem; text-decoration: none; }
+    .theme-toggle { cursor: pointer; }
+    .theme-toggle:hover, .nav-link:hover { border-color: var(--blue); color: var(--blue); }
     .panel, .flight, .facts { background: var(--surface); border: 1px solid var(--line); border-radius: 1.1rem; box-shadow: var(--shadow-small); }
     .panel { padding: 1.35rem; }
     .search-panel { background: var(--surface-floating); border-color: color-mix(in srgb, var(--blue) 22%, var(--line)); overflow: hidden; position: relative; }
@@ -113,6 +113,13 @@
     .calendar-row { border-top: 1px solid var(--line); display: grid; gap: .9rem; grid-template-columns: 1fr 1fr 9rem; margin-top: 1.15rem; padding-top: 1.05rem; }
     .hint { font-size: .82rem; margin: .4rem 0 0; }
     .demo-notice { background: color-mix(in srgb, var(--yellow) 10%, var(--surface-solid)); border: 1px solid color-mix(in srgb, var(--yellow) 40%, var(--line)); border-radius: .7rem; font-size: .86rem; margin-bottom: 1rem; padding: .7rem .8rem; }
+    .about-panel { margin-top: 1.5rem; scroll-margin-top: 1.5rem; }
+    .about-heading { display: grid; gap: .35rem; margin-bottom: 1.1rem; max-width: 48rem; }
+    .about-heading p { margin-bottom: 0; }
+    .about-grid { display: grid; gap: .8rem; grid-template-columns: repeat(3, 1fr); }
+    .about-card { background: var(--surface-floating); border: 1px solid var(--line); border-radius: .85rem; padding: 1rem; }
+    .about-card p { color: var(--muted); font-size: .9rem; margin-bottom: 0; }
+    .about-icon { align-items: center; background: var(--soft-blue); border-radius: .55rem; color: var(--blue); display: inline-flex; font-weight: 800; height: 2rem; justify-content: center; margin-bottom: .7rem; width: 2rem; }
     .busy { align-items: center; color: var(--blue); display: none; font-size: .85rem; font-weight: 650; gap: .5rem; margin-top: .85rem; }
     .htmx-request.busy, .htmx-request .busy { display: inline-flex; }
     .spinner { animation: spin .8s linear infinite; border: 2px solid color-mix(in srgb, var(--blue) 22%, transparent); border-radius: 50%; border-top-color: var(--blue); height: .95rem; width: .95rem; }
@@ -174,7 +181,7 @@
       main { padding-top: 1.5rem; }
       header { flex-direction: column; }
       .header-actions { justify-content: flex-start; }
-      .search-grid, .calendar-row { grid-template-columns: 1fr; }
+      .search-grid, .calendar-row, .about-grid { grid-template-columns: 1fr; }
       .message { max-width: 100%; }
       .follow-up-row { align-items: stretch; flex-direction: column; }
       .agent-job { grid-template-columns: 1fr; }
@@ -193,6 +200,7 @@
         <p class="muted">Search around your real calendar, then refine the options in plain language.</p>
       </div>
       <div class="header-actions">
+        <a class="nav-link" href="#about">About</a>
         <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false">☾ Dark mode</button>
       </div>
     </header>
@@ -236,6 +244,31 @@
     </section>
 
     <section id="workspace" aria-live="polite"></section>
+
+    <section id="about" class="panel about-panel" aria-labelledby="about-title">
+      <div class="about-heading">
+        <div class="panel-kicker">About the project</div>
+        <h2 id="about-title">Flight search with an open model—and deterministic guardrails</h2>
+        <p class="muted">AirGem finds practical flights around calendar commitments without asking an LLM to invent availability, prices, or schedule math.</p>
+      </div>
+      <div class="about-grid">
+        <article class="about-card">
+          <span class="about-icon" aria-hidden="true">✦</span>
+          <h3>Bounded AI</h3>
+          <p>Gemma parses intent and explains a selected trade-off. SerpApi supplies real flight options, while Python validates constraints and computes the Pareto shortlist.</p>
+        </article>
+        <article class="about-card">
+          <span class="about-icon" aria-hidden="true">⌁</span>
+          <h3>Transient by design</h3>
+          <p>Your SerpApi key and optional calendar stay in server memory for up to 30 minutes. They are not written to disk, cookies, HTML, or application logs.</p>
+        </article>
+        <article class="about-card">
+          <span class="about-icon" aria-hidden="true">◎</span>
+          <h3>Demo protections</h3>
+          <p>Hashed client-IP ownership isolates sessions, jobs, and booking actions. Per-IP and global limits, bounded inputs, and generic errors reduce abuse and secret exposure.</p>
+        </article>
+      </div>
+    </section>
   </main>
   <script>
     const themeToggle = document.querySelector("#theme-toggle");

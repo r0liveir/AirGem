@@ -11,6 +11,7 @@ from airgem.web import (
     _client_owner,
     _enforce_rate_limit,
     _global_rate_events,
+    _index_path,
     _public_error,
     _rate_events,
     _register_booking_action,
@@ -104,3 +105,13 @@ class TestDemoRateLimit(unittest.TestCase):
         message = _public_error(RuntimeError("request failed with private-serpapi-key"))
 
         self.assertNotIn("private-serpapi-key", message)
+
+
+class TestWebPage(unittest.TestCase):
+    def test_about_section_explains_project_and_demo_protections(self) -> None:
+        page = _index_path.read_text(encoding="utf-8")
+
+        self.assertIn('id="about"', page)
+        self.assertIn("Bounded AI", page)
+        self.assertIn("Transient by design", page)
+        self.assertIn("Demo protections", page)
