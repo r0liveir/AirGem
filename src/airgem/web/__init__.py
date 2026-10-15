@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import os
 import threading
+import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from hashlib import sha256
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -12,18 +15,30 @@ from uuid import uuid4
 from urllib.parse import urlsplit
 from urllib.request import Request as UrlRequest, urlopen
 
-from fastapi import File, Form, FastAPI, HTTPException, UploadFile
+from fastapi import File, Form, FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from airgem.application import ApplicationSession, continue_session, start_session
 from airgem.llm import OllamaProvider, OpenRouterProvider
 from airgem.search import BookingAction, SerpApiProvider
 
 app = FastAPI(title="AirGem")
-_sessions: dict[str, ApplicationSession] = {}
+_SESSION_TTL_SECONDS = 30 * 60
+_JOB_TTL_SECONDS = 10 * 60
+_RATE_WINDOW_SECONDS = 60 * 60
+_RATE_LIMIT_PER_IP = 10
+_RATE_LIMIT_GLOBAL = 100
+_MAX_PROMPT_LENGTH = 1_000
+_MAX_FOLLOW_UP_LENGTH = 500
+_MAX_CALENDAR_BYTES = 512_000
+_owner_salt = os.urandom(32)
+_state_lock = threading.Lock()
+_rate_events: dict[str, deque[float]] = {}
+_global_rate_events: deque[float] = deque()
+_sessions: dict[str, "SessionEntry"] = {}
 _jobs: dict[str, "WebJob"] = {}
-_booking_actions: dict[str, BookingAction] = {}
+_booking_actions: dict[str, "BookingEntry"] = {}
 _job_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="airgem-web")
 _web_dir = Path(__file__).parent
 _index_path = _web_dir / "index.html"
@@ -31,6 +46,8 @@ _index_path = _web_dir / "index.html"
 
 @dataclass
 class WebJob:
+    owner: str
+    expires_at: float
     status: Literal["queued", "running", "complete", "error"] = "queued"
     stage: str = "queued"
     html: str | None = None
@@ -72,6 +89,20 @@ class WebJob:
             }
 
 
+@dataclass
+class SessionEntry:
+    owner: str
+    session: ApplicationSession
+    expires_at: float
+
+
+@dataclass
+class BookingEntry:
+    owner: str
+    action: BookingAction
+    expires_at: float
+
+
 _JOB_STEPS = (
     ("parsing_request", "Parse request"),
     ("loading_calendar", "Load calendar"),
@@ -100,14 +131,18 @@ _STAGE_DETAILS = {
 
 
 class SearchInput(BaseModel):
-    prompt: str = Field(min_length=1)
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(min_length=1, max_length=_MAX_PROMPT_LENGTH)
+    serpapi_key: SecretStr = Field(min_length=8, max_length=256)
     provider: Literal["ollama", "openrouter"] | None = None
-    calendar_path: str | None = None
     buffer_minutes: int = Field(default=60, ge=0)
 
 
 class MessageInput(BaseModel):
-    prompt: str = Field(min_length=1)
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(min_length=1, max_length=_MAX_FOLLOW_UP_LENGTH)
 
 
 @app.get("/", include_in_schema=False)
@@ -126,9 +161,12 @@ def ui_index() -> str:
 
 
 @app.get("/ui/jobs/{job_id}")
-def ui_job_status(job_id: str) -> dict[str, object]:
-    job = _jobs.get(job_id)
-    if job is None:
+def ui_job_status(job_id: str, request: Request) -> dict[str, object]:
+    owner = _client_owner(request)
+    _cleanup_expired()
+    with _state_lock:
+        job = _jobs.get(job_id)
+    if job is None or job.owner != owner:
         raise HTTPException(status_code=404, detail="job not found")
     payload = job.snapshot()
     stage = str(payload["stage"])
@@ -139,51 +177,66 @@ def ui_job_status(job_id: str) -> dict[str, object]:
 
 
 @app.post("/api/search")
-def search(payload: SearchInput) -> dict[str, object]:
+def search(payload: SearchInput, request: Request) -> dict[str, object]:
+    owner = _client_owner(request)
+    _enforce_rate_limit(owner)
     try:
         session, result = start_session(
             payload.prompt,
             _llm_provider(payload.provider),
-            SerpApiProvider(),
+            SerpApiProvider(api_key=payload.serpapi_key.get_secret_value()),
             buffer_minutes=payload.buffer_minutes,
-            calendar_path=payload.calendar_path,
         )
     except (RuntimeError, ValueError) as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail=_public_error(error)) from error
     session_id = uuid4().hex
-    _sessions[session_id] = session
+    _store_session(session_id, owner, session)
     return {"session_id": session_id, **result}
 
 
 @app.post("/api/sessions/{session_id}/messages")
-def message(session_id: str, payload: MessageInput) -> dict[str, object]:
-    session = _sessions.get(session_id)
+def message(session_id: str, payload: MessageInput, request: Request) -> dict[str, object]:
+    owner = _client_owner(request)
+    _enforce_rate_limit(owner)
+    session = _owned_session(session_id, owner)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
     try:
         result = continue_session(session, payload.prompt)
     except (RuntimeError, ValueError) as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail=_public_error(error)) from error
     return {"session_id": session_id, **result}
 
 
 @app.post("/ui/search", response_class=HTMLResponse, include_in_schema=False)
 async def ui_search(
-    prompt: Annotated[str, Form(min_length=1)],
+    request: Request,
+    prompt: Annotated[str, Form(min_length=1, max_length=_MAX_PROMPT_LENGTH)],
+    serpapi_key: Annotated[str, Form(min_length=8, max_length=256)],
     provider: Annotated[Literal["ollama", "openrouter"] | None, Form()] = None,
     buffer_minutes: Annotated[int, Form(ge=0)] = 60,
     calendar: Annotated[UploadFile | None, File()] = None,
 ) -> HTMLResponse:
+    owner = _client_owner(request)
+    try:
+        _enforce_rate_limit(owner)
+    except HTTPException as error:
+        return HTMLResponse(
+            _error_fragment(str(error.detail)),
+            status_code=error.status_code,
+            headers=error.headers,
+        )
     try:
         calendar_text = await _calendar_text(calendar)
     except (RuntimeError, ValueError) as error:
         return HTMLResponse(_error_fragment(str(error)))
-    job_id = _create_job()
+    job_id = _create_job(owner)
     _job_executor.submit(
         _run_search_job,
         job_id,
         prompt,
         provider,
+        serpapi_key,
         buffer_minutes,
         calendar_text,
     )
@@ -191,20 +244,37 @@ async def ui_search(
 
 
 @app.post("/ui/sessions/{session_id}/messages", response_class=HTMLResponse, include_in_schema=False)
-def ui_message(session_id: str, prompt: Annotated[str, Form(min_length=1)]) -> HTMLResponse:
-    session = _sessions.get(session_id)
+def ui_message(
+    session_id: str,
+    request: Request,
+    prompt: Annotated[str, Form(min_length=1, max_length=_MAX_FOLLOW_UP_LENGTH)],
+) -> HTMLResponse:
+    owner = _client_owner(request)
+    try:
+        _enforce_rate_limit(owner)
+    except HTTPException as error:
+        return HTMLResponse(
+            _error_fragment(str(error.detail)),
+            status_code=error.status_code,
+            headers=error.headers,
+        )
+    session = _owned_session(session_id, owner)
     if session is None:
         return HTMLResponse(_error_fragment("session not found"))
-    job_id = _create_job()
-    _job_executor.submit(_run_message_job, job_id, session_id, prompt)
+    job_id = _create_job(owner)
+    _job_executor.submit(_run_message_job, job_id, session_id, session, prompt, owner)
     return HTMLResponse(_job_fragment(job_id))
 
 
 @app.post("/ui/bookings/{booking_id}", response_class=HTMLResponse, include_in_schema=False)
-def ui_booking(booking_id: str) -> Response:
-    action = _booking_actions.get(booking_id)
-    if action is None:
+def ui_booking(booking_id: str, request: Request) -> Response:
+    owner = _client_owner(request)
+    _cleanup_expired()
+    with _state_lock:
+        entry = _booking_actions.get(booking_id)
+    if entry is None or entry.owner != owner:
         raise HTTPException(status_code=404, detail="booking action not found")
+    action = entry.action
     if not _is_https_url(action.url):
         return HTMLResponse(_error_fragment("booking provider returned an unsafe URL"), status_code=502)
     if not action.post_data:
@@ -227,8 +297,8 @@ def ui_booking(booking_id: str) -> Response:
         if not _is_https_url(target):
             raise RuntimeError("booking provider did not return a safe destination")
         return RedirectResponse(target, status_code=303)
-    except Exception as error:
-        return HTMLResponse(_error_fragment(f"booking handoff failed: {error}"), status_code=502)
+    except Exception:
+        return HTMLResponse(_error_fragment("booking handoff failed"), status_code=502)
 
 
 def main() -> None:
@@ -237,9 +307,11 @@ def main() -> None:
     uvicorn.run("airgem.web:app", host="127.0.0.1", port=8000, reload=True)
 
 
-def _create_job() -> str:
+def _create_job(owner: str) -> str:
+    _cleanup_expired()
     job_id = uuid4().hex
-    _jobs[job_id] = WebJob()
+    with _state_lock:
+        _jobs[job_id] = WebJob(owner, time.monotonic() + _JOB_TTL_SECONDS)
     return job_id
 
 
@@ -247,6 +319,7 @@ def _run_search_job(
     job_id: str,
     prompt: str,
     provider: str | None,
+    serpapi_key: str,
     buffer_minutes: int,
     calendar_text: str | None,
 ) -> None:
@@ -255,27 +328,32 @@ def _run_search_job(
         session, result = start_session(
             prompt,
             _llm_provider(provider),
-            SerpApiProvider(),
+            SerpApiProvider(api_key=serpapi_key),
             buffer_minutes=buffer_minutes,
             calendar_text=calendar_text,
             stage_callback=job.update_stage,
         )
         session_id = uuid4().hex
-        _sessions[session_id] = session
-        job.complete(_workspace_fragment(session_id, result))
+        _store_session(session_id, job.owner, session)
+        job.complete(_workspace_fragment(session_id, result, job.owner))
     except Exception as error:
-        job.fail(str(error))
+        job.fail(_public_error(error))
 
 
-def _run_message_job(job_id: str, session_id: str, prompt: str) -> None:
+def _run_message_job(
+    job_id: str,
+    session_id: str,
+    session: ApplicationSession,
+    prompt: str,
+    owner: str,
+) -> None:
     job = _jobs[job_id]
-    session = _sessions[session_id]
     job.update_stage("selecting_outbound")
     try:
         result = continue_session(session, prompt, stage_callback=job.update_stage)
-        job.complete(_workspace_fragment(session_id, result))
+        job.complete(_workspace_fragment(session_id, result, owner))
     except Exception as error:
-        job.fail(str(error))
+        job.fail(_public_error(error))
 
 
 def _job_fragment(job_id: str) -> str:
@@ -308,8 +386,8 @@ def _llm_provider(name: str | None):
 async def _calendar_text(calendar: UploadFile | None) -> str | None:
     if calendar is None or not calendar.filename:
         return None
-    contents = await calendar.read(2_000_001)
-    if len(contents) > 2_000_000:
+    contents = await calendar.read(_MAX_CALENDAR_BYTES + 1)
+    if len(contents) > _MAX_CALENDAR_BYTES:
         raise ValueError("calendar file is too large")
     try:
         return contents.decode("utf-8-sig")
@@ -317,9 +395,13 @@ async def _calendar_text(calendar: UploadFile | None) -> str | None:
         raise ValueError("calendar file must be UTF-8 iCalendar data") from error
 
 
-def _workspace_fragment(session_id: str, payload: dict[str, object]) -> str:
-    session = _sessions.get(session_id)
-    booking_action_id = _register_booking_action(session.booking_action) if session and session.booking_action else None
+def _workspace_fragment(session_id: str, payload: dict[str, object], owner: str) -> str:
+    session = _owned_session(session_id, owner)
+    booking_action_id = (
+        _register_booking_action(session.booking_action, owner)
+        if session and session.booking_action
+        else None
+    )
     request = payload["request"]
     assert isinstance(request, dict)
     itineraries = payload["itineraries"]
@@ -354,7 +436,7 @@ def _workspace_fragment(session_id: str, payload: dict[str, object]) -> str:
         <form hx-post="/ui/sessions/{_attr(session_id)}/messages" hx-target="#workspace" hx-swap="innerHTML" hx-indicator="#follow-up-searching">
           <label for="follow-up-prompt">Continue the search</label>
           <div class="follow-up-row">
-            <input id="follow-up-prompt" name="prompt" required placeholder="Try ‘show the next outbound’ or ‘prefer nonstop flights’">
+            <input id="follow-up-prompt" name="prompt" required maxlength="{_MAX_FOLLOW_UP_LENGTH}" placeholder="Try ‘show the next outbound’ or ‘prefer nonstop flights’">
             <button type="submit">Ask</button>
           </div>
           <span id="follow-up-searching" class="busy" role="status"><span class="spinner" aria-hidden="true"></span> AirGem is checking the options…</span>
@@ -501,10 +583,78 @@ def _booking_link(value: object) -> str:
     )
 
 
-def _register_booking_action(action: BookingAction) -> str:
+def _register_booking_action(action: BookingAction, owner: str) -> str:
     booking_id = uuid4().hex
-    _booking_actions[booking_id] = action
+    with _state_lock:
+        _booking_actions[booking_id] = BookingEntry(
+            owner,
+            action,
+            time.monotonic() + _SESSION_TTL_SECONDS,
+        )
     return booking_id
+
+
+def _client_owner(request: Request) -> str:
+    host = request.client.host if request.client else "unknown"
+    return sha256(_owner_salt + host.encode("utf-8")).hexdigest()
+
+
+def _store_session(session_id: str, owner: str, session: ApplicationSession) -> None:
+    _cleanup_expired()
+    with _state_lock:
+        _sessions[session_id] = SessionEntry(
+            owner,
+            session,
+            time.monotonic() + _SESSION_TTL_SECONDS,
+        )
+
+
+def _owned_session(session_id: str, owner: str) -> ApplicationSession | None:
+    _cleanup_expired()
+    with _state_lock:
+        entry = _sessions.get(session_id)
+        if entry is None or entry.owner != owner:
+            return None
+        entry.expires_at = time.monotonic() + _SESSION_TTL_SECONDS
+        return entry.session
+
+
+def _cleanup_expired(now: float | None = None) -> None:
+    current = time.monotonic() if now is None else now
+    with _state_lock:
+        for store in (_sessions, _jobs, _booking_actions):
+            expired = [key for key, value in store.items() if value.expires_at <= current]
+            for key in expired:
+                del store[key]
+
+
+def _enforce_rate_limit(owner: str, now: float | None = None) -> None:
+    current = time.monotonic() if now is None else now
+    cutoff = current - _RATE_WINDOW_SECONDS
+    with _state_lock:
+        while _global_rate_events and _global_rate_events[0] <= cutoff:
+            _global_rate_events.popleft()
+        for key, prior_events in list(_rate_events.items()):
+            while prior_events and prior_events[0] <= cutoff:
+                prior_events.popleft()
+            if not prior_events:
+                del _rate_events[key]
+        events = _rate_events.setdefault(owner, deque())
+        if len(events) >= _RATE_LIMIT_PER_IP or len(_global_rate_events) >= _RATE_LIMIT_GLOBAL:
+            raise HTTPException(
+                status_code=429,
+                detail="Demo request limit reached. Try again later.",
+                headers={"Retry-After": str(_RATE_WINDOW_SECONDS)},
+            )
+        events.append(current)
+        _global_rate_events.append(current)
+
+
+def _public_error(error: Exception) -> str:
+    message = str(error)
+    if message.startswith("missing required flight fields:"):
+        return message
+    return "Search failed. Check your request and SerpApi key, then try again."
 
 
 def _is_https_url(value: object) -> bool:

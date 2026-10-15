@@ -192,8 +192,17 @@ uv run uvicorn airgem.web:app --reload
 ```
 
 The web page has no frontend build step. HTMX is loaded from its public CDN;
-the flight data, calendar upload, and session state stay in the local FastAPI
-process.
+the flight data, calendar upload, and session state stay in the FastAPI
+process. Web searches ask for a SerpAPI key, retain it only with the in-memory
+session for up to 30 minutes, and clear the browser field after submission.
+
+The hosted-demo protections allow 10 search or follow-up operations per client
+IP per hour and 100 operations globally per hour. Prompts, follow-ups, and
+calendar uploads are size-limited. Jobs, sessions, and booking actions are
+bound to the originating IP, become inaccessible after expiry, and are purged
+on subsequent traffic or process restart; no API key is written to disk,
+cookies, HTML, or application logs. On a hosted deployment, use a limited
+calendar export because the uploaded events pass through that server's memory.
 
 ## What can the user ask for?
 

@@ -110,8 +110,9 @@
     button.secondary:hover { border-color: var(--blue); color: var(--blue); }
     .search-button { align-items: center; display: inline-flex; gap: .55rem; white-space: nowrap; }
     .button-icon { font-size: 1.15rem; line-height: 1; }
-    .calendar-row { border-top: 1px solid var(--line); display: grid; gap: .9rem; grid-template-columns: 1fr 9rem; margin-top: 1.15rem; padding-top: 1.05rem; }
+    .calendar-row { border-top: 1px solid var(--line); display: grid; gap: .9rem; grid-template-columns: 1fr 1fr 9rem; margin-top: 1.15rem; padding-top: 1.05rem; }
     .hint { font-size: .82rem; margin: .4rem 0 0; }
+    .demo-notice { background: color-mix(in srgb, var(--yellow) 10%, var(--surface-solid)); border: 1px solid color-mix(in srgb, var(--yellow) 40%, var(--line)); border-radius: .7rem; font-size: .86rem; margin-bottom: 1rem; padding: .7rem .8rem; }
     .busy { align-items: center; color: var(--blue); display: none; font-size: .85rem; font-weight: 650; gap: .5rem; margin-top: .85rem; }
     .htmx-request.busy, .htmx-request .busy { display: inline-flex; }
     .spinner { animation: spin .8s linear infinite; border: 2px solid color-mix(in srgb, var(--blue) 22%, transparent); border-radius: 50%; border-top-color: var(--blue); height: .95rem; width: .95rem; }
@@ -198,6 +199,7 @@
 
     <section class="panel search-panel">
       <div class="panel-kicker">Start with a flight idea</div>
+      <p class="demo-notice">Hosted demo: your SerpApi key and optional calendar are held only in server memory for this session and expire after 30 minutes. Use a limited calendar export, not your primary calendar.</p>
       <form class="search-form" hx-post="/ui/search" hx-target="#workspace" hx-swap="innerHTML" hx-encoding="multipart/form-data" hx-indicator="#searching">
         <div class="search-grid">
           <div>
@@ -209,15 +211,20 @@
           </div>
           <div>
             <label for="prompt">What are you looking for?</label>
-            <textarea id="prompt" name="prompt" required placeholder="Find cheap flights from GRU to POA on 2027-01-01, returning 2027-01-08"></textarea>
+            <textarea id="prompt" name="prompt" required maxlength="1000" placeholder="Find cheap flights from GRU to POA on 2027-01-01, returning 2027-01-08"></textarea>
           </div>
           <button class="search-button" type="submit"><span>Search flights</span><span class="button-icon" aria-hidden="true">↗</span></button>
         </div>
         <div class="calendar-row">
           <div>
-            <label for="calendar">Optional local calendar (.ics)</label>
+            <label for="serpapi_key">Your SerpApi key</label>
+            <input id="serpapi_key" name="serpapi_key" type="password" required minlength="8" maxlength="256" autocomplete="off" spellcheck="false">
+            <p class="hint muted">Sent over HTTPS, never logged, and cleared from this page after submission.</p>
+          </div>
+          <div>
+            <label for="calendar">Optional calendar (.ics)</label>
             <input id="calendar" name="calendar" type="file" accept=".ics,text/calendar">
-            <p class="hint muted">Calendar data is used in memory and discarded after the search starts.</p>
+            <p class="hint muted">Maximum 512 KB; retained only with the transient session.</p>
           </div>
           <div>
             <label for="buffer_minutes">Travel buffer</label>
@@ -290,6 +297,12 @@
     }
 
     document.addEventListener("htmx:afterSwap", watchAgentJobs);
+    document.addEventListener("htmx:afterRequest", (event) => {
+      if (event.detail.elt.matches?.(".search-form")) {
+        const key = document.querySelector("#serpapi_key");
+        if (key) key.value = "";
+      }
+    });
     watchAgentJobs();
   </script>
 </body>
