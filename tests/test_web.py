@@ -13,7 +13,13 @@ class _FakeResponse:
         return None
 
     def geturl(self):
-        return "https://booking.example/flight/confirmed"
+        return "https://booking.example/flight"
+
+    def read(self, limit):
+        return (
+            b'<html><head><meta content="0;url=\'https://airline.example/checkout\'" '
+            b'http-equiv="refresh"></head></html>'
+        )[:limit]
 
 
 class TestWebBooking(unittest.TestCase):
@@ -29,8 +35,7 @@ class TestWebBooking(unittest.TestCase):
             response = ui_booking(booking_id)
 
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], "https://booking.example/flight/confirmed")
+        self.assertEqual(response.headers["location"], "https://airline.example/checkout")
         request = open_url.call_args.args[0]
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.data, b"flight=TA+100&currency=BRL")
-

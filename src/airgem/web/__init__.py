@@ -5,6 +5,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from html import escape
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Annotated, Literal
 from uuid import uuid4
@@ -221,8 +222,10 @@ def ui_booking(booking_id: str) -> Response:
         )
         with urlopen(request, timeout=30) as response:
             target = response.geturl()
+            if target == action.url:
+                target = _meta_refresh_url(response.read(65_536)) or ""
         if not _is_https_url(target):
-            raise RuntimeError("booking provider returned an unsafe redirect")
+            raise RuntimeError("booking provider did not return a safe destination")
         return RedirectResponse(target, status_code=303)
     except Exception as error:
         return HTMLResponse(_error_fragment(f"booking handoff failed: {error}"), status_code=502)
@@ -509,6 +512,25 @@ def _is_https_url(value: object) -> bool:
         return False
     parts = urlsplit(value)
     return parts.scheme == "https" and bool(parts.netloc)
+
+
+class _MetaRefreshParser(HTMLParser):
+    target: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        if tag != "meta" or (values.get("http-equiv") or "").lower() != "refresh":
+            return
+        _, separator, directive = (values.get("content") or "").partition(";")
+        name, equals, target = directive.partition("=")
+        if separator and equals and name.strip().lower() == "url":
+            self.target = target.strip().strip("\"'")
+
+
+def _meta_refresh_url(body: bytes) -> str | None:
+    parser = _MetaRefreshParser()
+    parser.feed(body.decode("latin-1"))
+    return parser.target
 
 
 def _error_fragment(message: str) -> str:
