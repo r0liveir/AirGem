@@ -132,9 +132,7 @@ def _attach_booking_action(
 
 
 def _selected_flights_json(itinerary: Any) -> str | None:
-    if itinerary.inbound is None:
-        return None
-    if not itinerary.outbound.segments or not itinerary.inbound.segments:
+    if not itinerary.outbound.segments:
         return None
 
     def serialize(segments: object) -> list[dict[str, str]]:
@@ -148,13 +146,12 @@ def _selected_flights_json(itinerary: Any) -> str | None:
             for segment in segments
         ]
 
-    return json.dumps(
-        {
-            "outbound": serialize(itinerary.outbound.segments),
-            "return": serialize(itinerary.inbound.segments),
-        },
-        separators=(",", ":"),
-    )
+    selected: dict[str, object] = {"outbound": serialize(itinerary.outbound.segments)}
+    if itinerary.inbound is not None:
+        if not itinerary.inbound.segments:
+            return None
+        selected["return"] = serialize(itinerary.inbound.segments)
+    return json.dumps(selected, separators=(",", ":"))
 
 
 def continue_session(

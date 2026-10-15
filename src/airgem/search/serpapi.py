@@ -146,10 +146,17 @@ class SerpApiProvider:
     ) -> BookingAction | None:
         """Fetch a booking action for the selected candidate, when available."""
         if selected_flights_json:
+            try:
+                selected_payload = json.loads(selected_flights_json)
+            except json.JSONDecodeError as error:
+                raise ValueError("selected_flights_json must be valid JSON") from error
+            if not isinstance(selected_payload, dict):
+                raise ValueError("selected_flights_json must be an object")
             payload = self._fetch_json(
                 {
                     "engine": "google_flights",
                     "api_key": self.api_key or "",
+                    "type": "1" if selected_payload.get("return") else "2",
                     "selected_flights_json": selected_flights_json,
                 }
             )

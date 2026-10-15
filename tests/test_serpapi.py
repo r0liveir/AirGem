@@ -79,6 +79,21 @@ class TestSerpApi(unittest.TestCase):
         self.assertNotIn("gl", calls[0])
         self.assertEqual(len(calls), 1)
 
+    def test_selected_one_way_flights_request_booking_options_as_one_way(self) -> None:
+        calls: list[dict[str, str]] = []
+        provider = SerpApiProvider(api_key="test", fetch_json=lambda params: calls.append(params) or request_data(params))
+
+        action = provider.resolve_booking_action(
+            ("candidate-0",),
+            selected_flights_json=(
+                '{"outbound":[{"flight_number":"TA100","departure_id":"GRU",'
+                '"arrival_id":"POA","date":"2026-11-06"}]}'
+            ),
+        )
+
+        self.assertIsNotNone(action)
+        self.assertEqual(calls[0]["type"], "2")
+
     def test_round_trip_uses_native_search(self) -> None:
         calls: list[dict[str, str]] = []
         provider = SerpApiProvider(api_key="test", fetch_json=lambda params: calls.append(params) or request_data(params))

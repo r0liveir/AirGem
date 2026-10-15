@@ -96,6 +96,7 @@
     .panel { padding: 1.35rem; }
     .search-panel { background: var(--surface-floating); border-color: color-mix(in srgb, var(--blue) 22%, var(--line)); overflow: hidden; position: relative; }
     .search-panel::before { background: linear-gradient(90deg, var(--blue), var(--cyan)); content: ""; height: .25rem; inset: 0 0 auto; position: absolute; }
+    .chat-composer { margin-top: 1rem; }
     .panel-kicker { color: var(--muted); font-size: .78rem; font-weight: 750; letter-spacing: .08em; margin-bottom: 1rem; text-transform: uppercase; }
     .search-grid { display: grid; gap: .9rem; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
     label { color: var(--muted); display: block; font-size: .85rem; margin-bottom: .25rem; }
@@ -146,19 +147,38 @@
     .assistant-message { background: var(--surface-solid); border: 1px solid var(--line); border-bottom-left-radius: .25rem; justify-self: start; }
     .message-label { color: var(--muted); display: block; font-size: .75rem; margin-bottom: .15rem; }
     .results-header { align-items: baseline; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding-bottom: .8rem; }
+    .section-label { color: var(--muted); font-size: .76rem; font-weight: 800; letter-spacing: .08em; margin: 1rem 0 .55rem; text-transform: uppercase; }
+    .primary-option { margin-bottom: 1.1rem; }
+    .featured-cards { grid-template-columns: minmax(0, 1fr); }
+    .alternatives-section { border-top: 1px solid var(--line); padding-top: .2rem; }
     .cards { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
     .flight { animation: rise-in .45s ease both; background: var(--surface-floating); padding: 1.1rem; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
     .flight:nth-child(2) { animation-delay: .06s; }
     .flight:nth-child(3) { animation-delay: .12s; }
     .flight:hover { border-color: color-mix(in srgb, var(--blue) 45%, var(--line)); box-shadow: var(--shadow); transform: translateY(-2px); }
     .flight.selected { border: 2px solid var(--green); padding: calc(1.1rem - 1px); }
+    .ticket-card { display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem; overflow: hidden; padding: 0; position: relative; }
+    .ticket-card.selected { border-color: var(--green); box-shadow: 0 .9rem 2.2rem color-mix(in srgb, var(--green) 16%, transparent); padding: 0; }
+    .ticket-main { min-width: 0; padding: .85rem 1rem .7rem; }
+    .ticket-stub { align-items: center; background: color-mix(in srgb, var(--blue) 12%, var(--surface-floating)); border-left: 1px dashed color-mix(in srgb, var(--blue) 48%, var(--line)); color: var(--blue); display: flex; flex-direction: column; font-size: .7rem; font-weight: 800; justify-content: space-between; letter-spacing: .08em; padding: 1rem .65rem; text-transform: uppercase; }
+    .ticket-dash { border-left: 2px dotted color-mix(in srgb, var(--blue) 48%, var(--line)); flex: 1; margin: .8rem 0; }
+    .ticket-mark { align-items: center; background: var(--blue); border-radius: 50%; color: white; display: inline-flex; font-size: 1.2rem; height: 2rem; justify-content: center; width: 2rem; }
+    .ticket-kicker { color: var(--muted); display: block; font-size: .66rem; letter-spacing: .05em; margin-bottom: .12rem; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
     .flight-title { align-items: start; display: flex; justify-content: space-between; gap: .75rem; }
     .flight-title strong { font-size: 1.05rem; }
     .badge { background: color-mix(in srgb, var(--green) 13%, transparent); border-radius: 999px; color: var(--green); font-size: .75rem; font-weight: 700; padding: .2rem .5rem; white-space: nowrap; }
-    .price { color: var(--blue); font-size: 1.35rem; font-weight: 800; letter-spacing: -.025em; margin: .65rem 0; }
-    .leg { border-top: 1px solid var(--line); margin-top: .65rem; padding-top: .65rem; }
-    .leg strong { display: block; }
-    .flight-actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .8rem; }
+    .price { color: var(--blue); font-size: 1.25rem; font-weight: 800; letter-spacing: -.025em; margin: .45rem 0; }
+    .leg { border-top: 1px solid var(--line); margin-top: .55rem; padding-top: .55rem; }
+    .leg-header { align-items: center; display: flex; justify-content: space-between; gap: .75rem; }
+    .leg-times { align-items: center; display: grid; gap: .5rem; grid-template-columns: 1fr auto 1fr; margin-top: .5rem; }
+    .airport-time { display: grid; gap: .05rem; }
+    .airport-time strong { font-size: 1.4rem; letter-spacing: -.04em; line-height: 1; }
+    .airport-time span { color: var(--muted); font-size: .75rem; }
+    .airport-time b { color: var(--blue); font-size: .82rem; letter-spacing: .06em; }
+    .arrival-time { text-align: right; }
+    .leg-track { align-items: center; color: var(--blue); display: flex; flex-direction: column; font-size: 1.4rem; }
+    .timezone-note { color: var(--muted); font-size: .68rem; margin-top: .45rem; }
+    .flight-actions { border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: .45rem; grid-column: 1 / -1; margin: 0; padding: .6rem 1rem .75rem; }
     .flight-actions form { margin: 0; }
     .flight-actions button { font-size: .9rem; }
     .booking-link, .booking-button { align-items: center; background: var(--blue); border-radius: .65rem; box-shadow: 0 .45rem 1rem color-mix(in srgb, var(--blue) 24%, transparent); color: white; display: inline-flex; font-size: .9rem; font-weight: 700; padding: .62rem .85rem; text-decoration: none; transition: filter .2s ease, transform .2s ease; }
@@ -186,6 +206,9 @@
       .follow-up-row { align-items: stretch; flex-direction: column; }
       .agent-job { grid-template-columns: 1fr; }
       .agent-spinner { height: 2.6rem; width: 2.6rem; }
+      .ticket-card { grid-template-columns: minmax(0, 1fr) 3.7rem; }
+      .ticket-stub { font-size: .58rem; padding-inline: .4rem; }
+      .airport-time strong { font-size: 1.3rem; }
     }
   </style>
 </head>
@@ -205,18 +228,11 @@
       </div>
     </header>
 
-    <section class="panel search-panel">
-      <div class="panel-kicker">Start with a flight idea</div>
-      <p class="demo-notice">Hosted demo: your SerpApi key and optional calendar are held only in server memory for this session and expire after 30 minutes. Use a limited calendar export, not your primary calendar.</p>
-      <form class="search-form" hx-post="/ui/search" hx-target="#workspace" hx-swap="innerHTML" hx-encoding="multipart/form-data" hx-indicator="#searching">
-        <div class="search-grid">
-          <div>
-            <label for="prompt">What are you looking for?</label>
-            <textarea id="prompt" name="prompt" required maxlength="1000" placeholder="Find cheap flights from GRU to POA on 2027-01-01, returning 2027-01-08"></textarea>
-          </div>
-          <button class="search-button" type="submit"><span>Search flights</span><span class="button-icon" aria-hidden="true">↗</span></button>
-        </div>
-        <div class="calendar-row">
+    <form id="chat-form" hx-post="/ui/search" hx-target="#workspace" hx-swap="innerHTML" hx-encoding="multipart/form-data" hx-indicator="#searching">
+      <section class="panel search-panel">
+        <div class="panel-kicker">Search setup</div>
+        <p class="demo-notice">Hosted demo: your SerpApi key and optional calendar are held only in server memory for this session and expire after 30 minutes. Use a limited calendar export, not your primary calendar.</p>
+        <div id="search-config" class="calendar-row">
           <div>
             <label for="serpapi_key">Your SerpApi key</label>
             <input id="serpapi_key" name="serpapi_key" type="password" required minlength="8" maxlength="256" autocomplete="off" spellcheck="false">
@@ -232,9 +248,19 @@
             <input id="buffer_minutes" name="buffer_minutes" type="number" min="0" value="60">
           </div>
         </div>
-        <span id="searching" class="busy" role="status"><span class="spinner" aria-hidden="true"></span> AirGem is comparing flight options…</span>
-      </form>
-    </section>
+      </section>
+      <section class="panel chat-composer">
+        <div id="composer-kicker" class="panel-kicker">Start with a flight idea</div>
+        <div class="search-grid">
+          <div id="search-prompt-area">
+            <label for="prompt">What are you looking for?</label>
+            <textarea id="prompt" name="prompt" required maxlength="1000" placeholder="Find cheap flights from GRU to POA on 2027-01-01, returning 2027-01-08" aria-label="Chat with AirGem"></textarea>
+          </div>
+          <button id="chat-submit" class="search-button" type="submit"><span>Search flights</span><span class="button-icon" aria-hidden="true">↗</span></button>
+        </div>
+        <span id="searching" class="busy" role="status"><span class="spinner" aria-hidden="true"></span><span id="searching-label">AirGem is comparing flight options…</span></span>
+      </section>
+    </form>
 
     <section id="workspace" aria-live="polite"></section>
 
@@ -282,6 +308,30 @@
       updateThemeButton();
     });
 
+    function activateChatComposer() {
+      const workspace = document.querySelector("#workspace");
+      const form = document.querySelector("#chat-form");
+      const sessionId = workspace?.querySelector("[data-session-id]")?.dataset.sessionId;
+      if (!form || !sessionId || form.dataset.mode === "chat") return;
+
+      form.dataset.mode = "chat";
+      form.setAttribute("hx-post", `/ui/sessions/${encodeURIComponent(sessionId)}/messages`);
+      form.removeAttribute("hx-encoding");
+      document.querySelector("#composer-kicker").textContent = "Continue the conversation";
+      document.querySelector("#prompt").placeholder = "Ask AirGem to refine the options…";
+      document.querySelector("#prompt").maxLength = 500;
+      document.querySelector("#chat-submit span").textContent = "Send";
+      document.querySelector("#searching-label").textContent = "AirGem is checking the options…";
+      document.querySelector("#search-config").hidden = true;
+      document.querySelectorAll("#search-config input").forEach((input) => {
+        input.disabled = true;
+        input.required = false;
+      });
+      document.querySelector("#search-prompt-area label").textContent = "What would you like to change?";
+      document.querySelector("#prompt").focus();
+      htmx.process(form);
+    }
+
     function watchAgentJobs() {
       document.querySelectorAll("[data-job-id]").forEach((job) => {
         if (job.dataset.polling === "true") return;
@@ -312,6 +362,7 @@
               if (payload.status === "complete") {
                 const key = document.querySelector("#serpapi_key");
                 if (key) key.value = "";
+                activateChatComposer();
               }
               return;
             }
@@ -326,7 +377,10 @@
       });
     }
 
-    document.addEventListener("htmx:afterSwap", watchAgentJobs);
+    document.addEventListener("htmx:afterSwap", () => {
+      watchAgentJobs();
+      activateChatComposer();
+    });
     watchAgentJobs();
   </script>
 </body>

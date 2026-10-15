@@ -16,6 +16,8 @@ from airgem.web import (
     _rate_events,
     _register_booking_action,
     _sessions,
+    _time_parts,
+    _leg_html,
     ui_booking,
 )
 
@@ -118,6 +120,33 @@ class TestDemoRateLimit(unittest.TestCase):
 
 
 class TestWebPage(unittest.TestCase):
+    def test_flight_times_show_readable_local_time_and_returned_offset(self) -> None:
+        self.assertEqual(
+            _time_parts("2027-01-01T15:30:00-03:00"),
+            ("15:30", "Fri, Jan 1", "UTC-03:00"),
+        )
+        self.assertEqual(
+            _time_parts("2027-01-01T15:30:00"),
+            ("15:30", "Fri, Jan 1", "Local airport time"),
+        )
+
+    def test_leg_collapses_duplicate_timezone_labels(self) -> None:
+        html = _leg_html(
+            "Outbound",
+            {
+                "origin": "GRU",
+                "destination": "POA",
+                "departure": "2027-01-01T15:30:00",
+                "arrival": "2027-01-01T17:15:00",
+                "stops": 0,
+                "duration_minutes": 105,
+                "airline": "AirGem Air",
+            },
+        )
+
+        self.assertIn("Local airport time · AirGem Air", html)
+        self.assertNotIn("Local airport time → Local airport time", html)
+
     def test_web_uses_server_configured_llm_provider(self) -> None:
         page = _index_path.read_text(encoding="utf-8")
 
@@ -128,6 +157,13 @@ class TestWebPage(unittest.TestCase):
 
         self.assertIn('payload.status === "complete"', page)
         self.assertNotIn('document.addEventListener("htmx:afterRequest"', page)
+
+    def test_web_uses_one_chat_composer_for_search_and_follow_ups(self) -> None:
+        page = _index_path.read_text(encoding="utf-8")
+
+        self.assertIn('id="chat-form"', page)
+        self.assertIn('form.dataset.mode = "chat"', page)
+        self.assertNotIn('id="follow-up-prompt"', page)
 
     def test_about_section_explains_project_and_demo_protections(self) -> None:
         page = _index_path.read_text(encoding="utf-8")

@@ -6,6 +6,7 @@ import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime
 from hashlib import sha256
 from html import escape
 from html.parser import HTMLParser
@@ -412,8 +413,23 @@ def _workspace_fragment(session_id: str, payload: dict[str, object], owner: str)
     itineraries = payload["itineraries"]
     assert isinstance(itineraries, list)
     alternatives = set(payload["alternatives"])
-    cards = "".join(
-        _itinerary_card(session_id, item, payload, alternatives, booking_action_id) for item in itineraries
+    selected_id = payload.get("selected", {}).get("id") if isinstance(payload.get("selected"), dict) else None
+    selected_item = next(
+        (item for item in itineraries if isinstance(item, dict) and item.get("id") == selected_id),
+        None,
+    )
+    other_items = [item for item in itineraries if item is not selected_item]
+    selected_html = (
+        '<section class="primary-option"><div class="section-label">Recommended itinerary</div>'
+        f'<div class="cards featured-cards">{_itinerary_card(session_id, selected_item, payload, alternatives, booking_action_id)}</div></section>'
+        if selected_item is not None
+        else ""
+    )
+    alternatives_html = (
+        '<section class="alternatives-section"><div class="section-label">Other options</div>'
+        f'<div class="cards">{"".join(_itinerary_card(session_id, item, payload, alternatives, booking_action_id) for item in other_items)}</div></section>'
+        if other_items
+        else ""
     )
     deferred = payload["deferred_outbound"]
     assert isinstance(deferred, list)
@@ -426,27 +442,16 @@ def _workspace_fragment(session_id: str, payload: dict[str, object], owner: str)
         )
     notes = "".join(f"<li>{_text(note)}</li>" for note in payload["notes"])
     return f"""
-    <div class="workspace">
+    <div class="workspace" data-session-id="{_attr(session_id)}">
       {_messages_html(payload["messages"])}
       <div class="results-header">
         <h2>{_text(request["origin"])} → {_text(request["destination"])}</h2>
         <span class="muted">{_text(request["departure_date"])}{_text(" → " + request["return_date"] if request.get("return_date") else "")}</span>
       </div>
-      <h3>{"Current options" if itineraries else "No matching options"}</h3>
-      {f'<div class="cards">{cards}</div>' if cards else '<p class="empty">No flights matched the current constraints.</p>'}
+      {selected_html}{alternatives_html if itineraries else '<p class="empty">No flights matched the current constraints.</p>'}
       {deferred_html}
       {_rationale_html(payload.get("rationale"))}
       {f'<ul class="notes">{notes}</ul>' if notes else ''}
-      <section class="panel follow-up">
-        <form hx-post="/ui/sessions/{_attr(session_id)}/messages" hx-target="#workspace" hx-swap="innerHTML" hx-indicator="#follow-up-searching">
-          <label for="follow-up-prompt">Continue the search</label>
-          <div class="follow-up-row">
-            <input id="follow-up-prompt" name="prompt" required maxlength="{_MAX_FOLLOW_UP_LENGTH}" placeholder="Try ‘show the next outbound’ or ‘prefer nonstop flights’">
-            <button type="submit">Ask</button>
-          </div>
-          <span id="follow-up-searching" class="busy" role="status"><span class="spinner" aria-hidden="true"></span> AirGem is checking the options…</span>
-        </form>
-      </section>
     </div>
     """
 
@@ -511,24 +516,48 @@ def _itinerary_card(
         airlines.append(inbound.get("airline"))
     airline = " + ".join(dict.fromkeys(str(name) for name in airlines if name)) or "Airline pending"
     return f"""
-    <article class="flight{' selected' if item_id == selected_id else ''}">
-      <div class="flight-title"><strong>{_text(item_id)} · {_text(airline)}</strong>{badge}</div>
-      <div class="price">{_text(item.get("currency", "USD"))} {float(item.get("price", 0)):.2f}</div>
-      {_leg_html("Outbound", outbound)}
-      {_leg_html("Return", inbound) if isinstance(inbound, dict) else '<div class="muted">Return details pending</div>' if item.get("return_pending") else ''}
+    <article class="flight ticket-card{' selected' if item_id == selected_id else ''}">
+      <div class="ticket-main">
+        <div class="flight-title"><div><span class="ticket-kicker">{_text(item_id)}</span><strong>{_text(airline)}</strong></div>{badge}</div>
+        <div class="price">{_text(item.get("currency", "USD"))} {float(item.get("price", 0)):.2f}</div>
+        {_leg_html("Outbound", outbound)}
+        {_leg_html("Return", inbound) if isinstance(inbound, dict) else '<div class="muted">Return details pending</div>' if item.get("return_pending") else ''}
+      </div>
+      <aside class="ticket-stub"><span>AirGem</span><span class="ticket-dash" aria-hidden="true"></span><span class="ticket-mark" aria-hidden="true">✦</span></aside>
       {f'<div class="flight-actions">{action_html}</div>' if action_html else ''}
     </article>
     """
 
 
 def _leg_html(label: str, leg: dict[str, object]) -> str:
+    departure_time, departure_date, departure_zone = _time_parts(leg.get("departure"))
+    arrival_time, arrival_date, arrival_zone = _time_parts(leg.get("arrival"))
+    zone_note = departure_zone if departure_zone == arrival_zone else f"{departure_zone} → {arrival_zone}"
     return f"""
     <div class="leg">
-      <strong>{_text(label)} · {_text(leg.get("origin"))} → {_text(leg.get("destination"))}</strong>
-      <div class="muted">{_text(leg.get("departure"))} · {_text(leg.get("airline") or "Airline pending")}</div>
-      <div class="muted">{_stops(leg.get("stops"))} · {_duration(leg.get("duration_minutes"))}</div>
+      <div class="leg-header"><strong>{_text(label)}</strong><span class="muted">{_stops(leg.get("stops"))} · {_duration(leg.get("duration_minutes"))}</span></div>
+      <div class="leg-times">
+        <div class="airport-time"><strong>{_text(departure_time)}</strong><span>{_text(departure_date)}</span><b>{_text(leg.get("origin"))}</b></div>
+        <div class="leg-track" aria-hidden="true"><span>→</span></div>
+        <div class="airport-time arrival-time"><strong>{_text(arrival_time)}</strong><span>{_text(arrival_date)}</span><b>{_text(leg.get("destination"))}</b></div>
+      </div>
+      <div class="timezone-note">{_text(zone_note)} · {_text(leg.get("airline") or "Airline pending")}</div>
     </div>
     """
+
+
+def _time_parts(value: object) -> tuple[str, str, str]:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return str(value), "", "Time as returned"
+    date_label = parsed.strftime("%a, %b %d").replace(" 0", " ")
+    if parsed.utcoffset() is None:
+        zone_label = "Local airport time"
+    else:
+        offset = parsed.strftime("%z")
+        zone_label = f"UTC{offset[:3]}:{offset[3:]}"
+    return parsed.strftime("%H:%M"), date_label, zone_label
 
 
 def _rationale_html(rationale: object) -> str:

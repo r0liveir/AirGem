@@ -131,25 +131,54 @@ class FlightAgent:
         """Apply a bounded follow-up to the current candidate set."""
         session.prompt = prompt
         session.turns = 0
+        requested_id = _requested_candidate_id(prompt)
+
+        # Exact itinerary IDs are unambiguous. Reuse an already expanded option
+        # without asking the model to reconstruct an ID that is already known.
+        if requested_id and "/return-" in requested_id:
+            requested_itinerary = next(
+                (item for item in session.expanded_itineraries if item.id == requested_id),
+                None,
+            )
+            if requested_itinerary is not None:
+                session.selected = requested_itinerary
+                session.selection_reason = "Selected the itinerary you requested."
+                self._set_state(session, AgentState.COMPLETE)
+                return self._result(session)
+
         if session.deferred_outbound:
             if not hasattr(self.search, "expand_round_trip"):
                 raise ValueError("search provider cannot expand round trips")
             self._set_state(session, AgentState.SELECTING_OUTBOUND)
+            outbound_candidates = session.outbound_candidates
+            requested_outbound_id = _outbound_id(requested_id)
             outbound = self._select(
                 session,
                 "select_deferred_outbound",
                 prompt,
-                session.deferred_outbound,
+                outbound_candidates,
+                requested_id=requested_outbound_id,
             )
             session.deferred_outbound = _without(session.deferred_outbound, outbound)
-            return self._expand_outbound(session, outbound, prompt)
+            return self._expand_outbound(
+                session,
+                outbound,
+                prompt,
+                requested_return_id=requested_id if requested_id and "/return-" in requested_id else None,
+            )
 
         candidates = _without(session.outbound_candidates, session.selected) if session.selected else session.outbound_candidates
         if not candidates:
             self._set_state(session, AgentState.COMPLETE)
             return self._result(session)
         self._set_state(session, AgentState.SELECTING_OUTBOUND)
-        session.selected = self._select(session, "select_candidate", prompt, candidates)
+        session.selected = self._select(
+            session,
+            "select_candidate",
+            prompt,
+            candidates,
+            requested_id=requested_id,
+        )
         self._set_state(session, AgentState.COMPLETE)
         return self._result(session)
 
@@ -158,9 +187,14 @@ class FlightAgent:
         session: AgentSession,
         outbound: Itinerary,
         prompt: str,
+        *,
+        requested_return_id: str | None = None,
     ) -> AgentResult:
         if not hasattr(self.search, "expand_round_trip"):
             raise ValueError("search provider cannot expand round trips")
+
+        if outbound.id in session.expanded_outbound_ids:
+            return self._select_existing_return(session, outbound, prompt)
 
         self._set_state(session, AgentState.EXPANDING_RETURN)
         logger.debug("expanding selected candidate id=%s", outbound.id)
@@ -188,7 +222,35 @@ class FlightAgent:
             return self._result(session)
 
         self._set_state(session, AgentState.SELECTING_RETURN)
-        session.selected = self._select(session, "select_return", prompt, expanded_itineraries)
+        session.selected = self._select(
+            session,
+            "select_return",
+            prompt,
+            expanded_itineraries,
+            requested_id=requested_return_id,
+        )
+        self._set_state(session, AgentState.COMPLETE)
+        return self._result(session)
+
+    def _select_existing_return(
+        self,
+        session: AgentSession,
+        outbound: Itinerary,
+        prompt: str,
+    ) -> AgentResult:
+        return_candidates = tuple(
+            item for item in session.expanded_itineraries if item.id.startswith(f"{outbound.id}/return-")
+        )
+        if not return_candidates:
+            raise ValueError(f"no expanded return candidates for {outbound.id}")
+        self._set_state(session, AgentState.SELECTING_RETURN)
+        session.selected = self._select(
+            session,
+            "select_return",
+            prompt,
+            return_candidates,
+            requested_id=_requested_candidate_id(prompt),
+        )
         self._set_state(session, AgentState.COMPLETE)
         return self._result(session)
 
@@ -217,11 +279,18 @@ class FlightAgent:
         action: str,
         prompt: str,
         candidates: tuple[Itinerary, ...],
+        *,
+        requested_id: str | None = None,
     ) -> Itinerary:
         if len(candidates) == 1:
             logger.debug("single candidate id=%s; skip LLM selection", candidates[0].id)
             session.selection_reason = "It is the only feasible option after applying your constraints."
             return candidates[0]
+        if requested_id:
+            for candidate in candidates:
+                if candidate.id == requested_id:
+                    session.selection_reason = "Selected the candidate you requested."
+                    return candidate
         if session.turns >= self.max_turns:
             return self._fallback(session, candidates, "Agent turn budget exhausted; used Pareto fallback.")
 
@@ -319,6 +388,25 @@ def _candidate_to_dict(itinerary: Itinerary) -> dict[str, Any]:
         "outbound_departure": values["outbound"]["departure"],
         "inbound_departure": values["inbound"]["departure"] if values["inbound"] else None,
     }
+
+
+def _requested_candidate_id(prompt: str) -> str | None:
+    normalized = re.sub(
+        r"\b(candidate-\d+)\s*(?:,|/)\s*(return-\d+)\b",
+        r"\1/\2",
+        prompt.lower(),
+    )
+    match = re.search(r"\bcandidate-\d+/return-\d+\b", normalized)
+    if match:
+        return match.group(0)
+    match = re.search(r"\b(?:candidate|one-way)-\d+\b", normalized)
+    return match.group(0) if match else None
+
+
+def _outbound_id(candidate_id: str | None) -> str | None:
+    if candidate_id is None:
+        return None
+    return candidate_id.split("/return-", 1)[0]
 
 
 def _without(candidates: tuple[Itinerary, ...], excluded: Itinerary) -> tuple[Itinerary, ...]:

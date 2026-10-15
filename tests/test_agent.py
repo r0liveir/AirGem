@@ -138,6 +138,7 @@ class TestFlightAgent(unittest.TestCase):
                 [
                     '{"action":"select_candidate","candidate_id":"candidate-0"}',
                     '{"action":"select_return","candidate_id":"candidate-0/return-1"}',
+                    '{"action":"select_deferred_outbound","candidate_id":"candidate-1"}',
                     '{"action":"select_return","candidate_id":"candidate-1/return-0"}',
                 ]
             ),
@@ -155,6 +156,43 @@ class TestFlightAgent(unittest.TestCase):
             tuple(item.id for item in second.alternatives),
             ("candidate-0/return-1", "candidate-0/return-0", "candidate-1/return-1"),
         )
+
+    def test_explicit_return_candidate_reuses_saved_expansion(self) -> None:
+        search = RoundTripSearch()
+        agent = FlightAgent(
+            FakeLLM(
+                [
+                    '{"action":"select_candidate","candidate_id":"candidate-0"}',
+                    '{"action":"select_return","candidate_id":"candidate-0/return-0"}',
+                ]
+            ),
+            search,
+        )
+
+        session, _ = agent.start("cheap flight", self.request)
+        result = agent.continue_session(session, "candidate-0, return-1 booking url")
+
+        self.assertEqual(search.expanded_id, "candidate-0")
+        self.assertEqual(result.selected.id, "candidate-0/return-1")
+
+    def test_follow_up_model_can_choose_previously_expanded_outbound(self) -> None:
+        search = RoundTripSearch()
+        agent = FlightAgent(
+            FakeLLM(
+                [
+                    '{"action":"select_candidate","candidate_id":"candidate-0"}',
+                    '{"action":"select_return","candidate_id":"candidate-0/return-0"}',
+                    '{"action":"select_deferred_outbound","candidate_id":"candidate-0"}',
+                    '{"action":"select_return","candidate_id":"candidate-0/return-1"}',
+                ]
+            ),
+            search,
+        )
+
+        session, _ = agent.start("cheap flight", self.request)
+        result = agent.continue_session(session, "show me the outbound at 08:15")
+
+        self.assertEqual(result.selected.id, "candidate-0/return-1")
 
     def test_invalid_action_falls_back_to_first_pareto_candidate(self) -> None:
         agent = FlightAgent(FakeLLM(["not json"]), OneWaySearch())

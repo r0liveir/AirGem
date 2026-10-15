@@ -89,6 +89,29 @@ class TestApplication(unittest.TestCase):
         self.assertIn('"flight_number":"AD2836"', selected or "")
         self.assertIn('"flight_number":"AD2863"', selected or "")
 
+    def test_selected_flights_json_supports_one_way_itineraries(self) -> None:
+        outbound = FlightOption(
+            provider="fake",
+            origin="GRU",
+            destination="POA",
+            departure=datetime(2026, 11, 6, 8),
+            arrival=datetime(2026, 11, 6, 10),
+            price=100,
+            currency="USD",
+            stops=0,
+            segments=(
+                FlightSegment("AD 2836", "GRU", "POA", datetime(2026, 11, 6, 8), datetime(2026, 11, 6, 10)),
+            ),
+        )
+        itinerary = Itinerary("one-way-0", outbound, None, 100, "USD", 120, 0)
+
+        selected = _selected_flights_json(itinerary)
+
+        self.assertEqual(
+            selected,
+            '{"outbound":[{"flight_number":"AD2836","departure_id":"GRU","arrival_id":"POA","date":"2026-11-06"}]}',
+        )
+
     def test_start_session_reuses_shared_application_path(self) -> None:
         session, payload = start_session("cheap flight", FakeLLM(), FakeSearch())
 
