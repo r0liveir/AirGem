@@ -1,8 +1,9 @@
 import unittest
 from datetime import datetime
 
-from airgem.application import continue_session, start_session
-from airgem.search import FlightOption, FlightSearchResult
+from airgem.application import _selected_flights_json, continue_session, start_session
+from airgem.search import FlightOption, FlightSearchResult, FlightSegment
+from airgem.itinerary import Itinerary
 
 
 class FakeLLM:
@@ -54,6 +55,40 @@ class FollowUpSearch(FakeSearch):
 
 
 class TestApplication(unittest.TestCase):
+    def test_selected_flights_json_normalizes_iata_flight_numbers(self) -> None:
+        outbound = FlightOption(
+            provider="fake",
+            origin="GRU",
+            destination="POA",
+            departure=datetime(2026, 11, 6, 8),
+            arrival=datetime(2026, 11, 6, 10),
+            price=100,
+            currency="USD",
+            stops=0,
+            segments=(
+                FlightSegment("AD 2836", "GRU", "POA", datetime(2026, 11, 6, 8), datetime(2026, 11, 6, 10)),
+            ),
+        )
+        inbound = FlightOption(
+            provider="fake",
+            origin="POA",
+            destination="GRU",
+            departure=datetime(2026, 11, 8, 18),
+            arrival=datetime(2026, 11, 8, 20),
+            price=100,
+            currency="USD",
+            stops=0,
+            segments=(
+                FlightSegment("AD 2863", "POA", "GRU", datetime(2026, 11, 8, 18), datetime(2026, 11, 8, 20)),
+            ),
+        )
+        itinerary = Itinerary("round-trip-0", outbound, inbound, 100, "USD", 240, 0)
+
+        selected = _selected_flights_json(itinerary)
+
+        self.assertIn('"flight_number":"AD2836"', selected or "")
+        self.assertIn('"flight_number":"AD2863"', selected or "")
+
     def test_start_session_reuses_shared_application_path(self) -> None:
         session, payload = start_session("cheap flight", FakeLLM(), FakeSearch())
 

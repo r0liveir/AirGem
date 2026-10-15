@@ -151,9 +151,10 @@
     .leg { border-top: 1px solid var(--line); margin-top: .65rem; padding-top: .65rem; }
     .leg strong { display: block; }
     .flight-actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .8rem; }
+    .flight-actions form { margin: 0; }
     .flight-actions button { font-size: .9rem; }
-    .booking-link { align-items: center; background: var(--blue); border-radius: .65rem; box-shadow: 0 .45rem 1rem color-mix(in srgb, var(--blue) 24%, transparent); color: white; display: inline-flex; font-size: .9rem; font-weight: 700; padding: .62rem .85rem; text-decoration: none; transition: filter .2s ease, transform .2s ease; }
-    .booking-link:hover { color: white; filter: brightness(1.06); transform: translateY(-1px); }
+    .booking-link, .booking-button { align-items: center; background: var(--blue); border-radius: .65rem; box-shadow: 0 .45rem 1rem color-mix(in srgb, var(--blue) 24%, transparent); color: white; display: inline-flex; font-size: .9rem; font-weight: 700; padding: .62rem .85rem; text-decoration: none; transition: filter .2s ease, transform .2s ease; }
+    .booking-link:hover, .booking-button:hover { color: white; filter: brightness(1.06); transform: translateY(-1px); }
     .facts { background: color-mix(in srgb, var(--yellow) 10%, var(--surface-solid)); border-color: color-mix(in srgb, var(--yellow) 45%, var(--line)); margin-top: 1rem; padding: 1rem; }
     .facts ul { margin: 0; padding-left: 1.2rem; }
     .notes { color: var(--muted); margin-top: 1rem; }

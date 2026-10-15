@@ -117,6 +117,16 @@ def _flight_option_to_dict(option: FlightOption) -> dict[str, Any]:
     values = asdict(option)
     values["departure"] = option.departure.isoformat()
     values["arrival"] = option.arrival.isoformat()
+    values["segments"] = [
+        {
+            "flight_number": segment.flight_number,
+            "origin": segment.origin,
+            "destination": segment.destination,
+            "departure": segment.departure.isoformat(),
+            "arrival": segment.arrival.isoformat(),
+        }
+        for segment in option.segments
+    ]
     return values
 
 

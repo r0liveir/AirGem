@@ -74,6 +74,8 @@ Current functionality includes:
 - Local **Ollama Gemma** or **OpenRouter Gemma** providers.
 - A bounded state-machine agent with deterministic fallback behavior.
 - A small local FastAPI web UI with in-memory follow-up sessions.
+- Booking handoff actions for selected itineraries when SerpAPI provides them,
+  including provider POST data when required.
 - Offline unit tests for parsing, search adapters, calendar handling, itinerary
   construction, Pareto filtering, and agent behavior.
 
@@ -349,7 +351,6 @@ Later work:
 - Google Calendar API integration as an optional adapter.
 - Flexible-date search.
 - Multiple-airport searches.
-- Booking URL resolution after itinerary selection.
 - Additional search providers.
 - Hosted deployment and Sentry observability.
 

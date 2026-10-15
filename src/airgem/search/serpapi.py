@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 from airgem.core import FlightRequest
 
-from .provider import FlightOption, FlightSearchResult
+from .provider import BookingAction, FlightOption, FlightSearchResult, FlightSegment
 
 JsonFetcher = Callable[[dict[str, str]], dict[str, Any]]
 
@@ -138,8 +138,23 @@ class SerpApiProvider:
             store_tokens=True,
         )
 
-    def resolve_booking_url(self, candidate_ids: tuple[str, ...]) -> str | None:
-        """Fetch a direct booking link for the selected candidate, when available."""
+    def resolve_booking_action(
+        self,
+        candidate_ids: tuple[str, ...],
+        *,
+        selected_flights_json: str | None = None,
+    ) -> BookingAction | None:
+        """Fetch a booking action for the selected candidate, when available."""
+        if selected_flights_json:
+            payload = self._fetch_json(
+                {
+                    "engine": "google_flights",
+                    "api_key": self.api_key or "",
+                    "selected_flights_json": selected_flights_json,
+                }
+            )
+            _raise_api_error(payload)
+            return _direct_booking_action(payload)
         for candidate_id in reversed(candidate_ids):
             booking_token = self._booking_tokens.get(candidate_id)
             if not booking_token:
@@ -152,10 +167,22 @@ class SerpApiProvider:
                 }
             )
             _raise_api_error(payload)
-            url = _direct_booking_url(payload)
-            if url is not None:
-                return url
+            action = _direct_booking_action(payload)
+            if action is not None:
+                return action
         return None
+
+    def resolve_booking_url(
+        self,
+        candidate_ids: tuple[str, ...],
+        *,
+        selected_flights_json: str | None = None,
+    ) -> str | None:
+        action = self.resolve_booking_action(
+            candidate_ids,
+            selected_flights_json=selected_flights_json,
+        )
+        return action.url if action is not None else None
 
     def _base_params(
         self,
@@ -243,6 +270,7 @@ class SerpApiProvider:
         duration_minutes = item.get("total_duration")
         if isinstance(duration_minutes, bool) or not isinstance(duration_minutes, int) or duration_minutes < 0:
             duration_minutes = None
+        segments = _flight_segments(flights)
         return FlightOption(
             provider=self.name,
             origin=origin,
@@ -255,6 +283,7 @@ class SerpApiProvider:
             airline=", ".join(airlines) or None,
             duration_minutes=duration_minutes,
             candidate_id=candidate_id,
+            segments=segments,
         )
 
     def _get_json(self, params: dict[str, str]) -> dict[str, Any]:
@@ -278,6 +307,33 @@ def _flight_groups(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return groups
 
 
+def _flight_segments(flights: list[Any]) -> tuple[FlightSegment, ...]:
+    segments: list[FlightSegment] = []
+    for flight in flights:
+        if not isinstance(flight, dict):
+            return ()
+        try:
+            departure_airport = flight["departure_airport"]
+            arrival_airport = flight["arrival_airport"]
+            flight_number = flight["flight_number"]
+            if not isinstance(departure_airport, dict) or not isinstance(arrival_airport, dict):
+                return ()
+            if not isinstance(flight_number, str) or not flight_number:
+                return ()
+            segments.append(
+                FlightSegment(
+                    flight_number=flight_number,
+                    origin=str(departure_airport["id"]).upper(),
+                    destination=str(arrival_airport["id"]).upper(),
+                    departure=_parse_datetime(departure_airport["time"]),
+                    arrival=_parse_datetime(arrival_airport["time"]),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            return ()
+    return tuple(segments)
+
+
 def _request_url(base_url: str, params: dict[str, str]) -> str:
     parts = urlsplit(base_url)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
@@ -297,7 +353,7 @@ def _raise_api_error(payload: dict[str, Any]) -> None:
         raise RuntimeError(f"SerpApi returned an error: {error}")
 
 
-def _direct_booking_url(payload: dict[str, Any]) -> str | None:
+def _direct_booking_action(payload: dict[str, Any]) -> BookingAction | None:
     options = payload.get("booking_options")
     if not isinstance(options, list):
         return None
@@ -315,13 +371,17 @@ def _direct_booking_url(payload: dict[str, Any]) -> str | None:
             if not isinstance(candidate, dict):
                 continue
             request = candidate.get("booking_request")
-            if isinstance(request, dict) and not request.get("post_data"):
+            if isinstance(request, dict):
                 url = _https_url(request.get("url"))
                 if url is not None:
-                    return url
+                    post_data = request.get("post_data")
+                    return BookingAction(
+                        url=url,
+                        post_data=post_data if isinstance(post_data, str) and post_data else None,
+                    )
             url = _https_url(candidate.get("url"))
             if url is not None:
-                return url
+                return BookingAction(url=url)
     return None
 
 

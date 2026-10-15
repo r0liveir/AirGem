@@ -20,6 +20,22 @@ class FlightOption:
     airline: str | None = None
     duration_minutes: int | None = None
     candidate_id: str | None = None
+    segments: tuple["FlightSegment", ...] = ()
+
+
+@dataclass(frozen=True)
+class FlightSegment:
+    flight_number: str
+    origin: str
+    destination: str
+    departure: datetime
+    arrival: datetime
+
+
+@dataclass(frozen=True)
+class BookingAction:
+    url: str
+    post_data: str | None = None
 
 
 @dataclass(frozen=True)
@@ -39,8 +55,21 @@ class FlightSearchProvider(Protocol):
     def search(self, request: FlightRequest) -> FlightSearchResult:
         """Return verified flight options for normalized request."""
 
-    def resolve_booking_url(self, candidate_ids: tuple[str, ...]) -> str | None:
-        """Return a direct HTTPS booking URL for selected candidate IDs, if available."""
+    def resolve_booking_action(
+        self,
+        candidate_ids: tuple[str, ...],
+        *,
+        selected_flights_json: str | None = None,
+    ) -> BookingAction | None:
+        """Return a provider booking action for selected candidates, if available."""
+
+    def resolve_booking_url(
+        self,
+        candidate_ids: tuple[str, ...],
+        *,
+        selected_flights_json: str | None = None,
+    ) -> str | None:
+        """Return a direct HTTPS booking URL for selected candidates, if available."""
 
 
 def search_dates(request: FlightRequest) -> tuple[date, date | None]:

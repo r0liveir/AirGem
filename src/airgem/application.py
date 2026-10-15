@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, time, timedelta
 from typing import Any, Callable, Literal
@@ -9,7 +10,7 @@ from airgem.calendar import BusyInterval, load_ics, parse_ics
 from airgem.core import FlightRequest, parse_flight_request
 from airgem.itinerary import itinerary_to_dict
 from airgem.llm import LLMProvider
-from airgem.search import FlightSearchProvider, FlightSearchResult
+from airgem.search import BookingAction, FlightSearchProvider, FlightSearchResult
 
 
 @dataclass
@@ -21,6 +22,7 @@ class ApplicationSession:
     busy_intervals: tuple[BusyInterval, ...] = ()
     buffer_minutes: int = 0
     messages: list["ChatMessage"] = field(default_factory=list)
+    booking_action: BookingAction | None = None
 
 
 @dataclass(frozen=True)
@@ -71,26 +73,28 @@ def start_session(
         buffer_minutes=buffer_minutes,
         stage_callback=stage_callback,
     )
-    result = _attach_booking_url(result, search_provider, stage_callback)
-    application_session = ApplicationSession(agent, session, busy_intervals, buffer_minutes)
+    result, booking_action = _attach_booking_action(result, search_provider, stage_callback)
+    application_session = ApplicationSession(
+        agent,
+        session,
+        busy_intervals,
+        buffer_minutes,
+        booking_action=booking_action,
+    )
     application_session.messages.append(ChatMessage("user", prompt))
     payload = result_to_payload(result, request, busy_intervals, buffer_minutes)
     application_session.messages.append(ChatMessage("assistant", payload["agent_message"]))
     return application_session, _session_payload(application_session, payload)
 
 
-def _attach_booking_url(
+def _attach_booking_action(
     result: AgentResult,
     search_provider: FlightSearchProvider,
     stage_callback: Callable[[str], None] | None,
-) -> AgentResult:
-    if result.selected is None or result.selected.inbound is not None:
-        # ponytail: one-way links first; round-trip pinning needs flight numbers and
-        # selected_flights_json before it can safely produce a booking action.
-        return result
-    resolver = getattr(search_provider, "resolve_booking_url", None)
-    if not callable(resolver):
-        return result
+) -> tuple[AgentResult, BookingAction | None]:
+    if result.selected is None:
+        return result, None
+    selected_flights_json = _selected_flights_json(result.selected)
     candidate_ids = tuple(
         candidate_id
         for candidate_id in (
@@ -99,21 +103,58 @@ def _attach_booking_url(
         )
         if candidate_id
     )
-    if not candidate_ids:
-        return result
+    if not candidate_ids and not selected_flights_json:
+        return result, None
     if stage_callback is not None:
         stage_callback("fetching_booking")
     try:
-        booking_url = resolver(candidate_ids)
+        action_resolver = getattr(search_provider, "resolve_booking_action", None)
+        if callable(action_resolver):
+            booking_action = action_resolver(
+                candidate_ids,
+                selected_flights_json=selected_flights_json,
+            )
+        else:
+            url_resolver = getattr(search_provider, "resolve_booking_url", None)
+            if not callable(url_resolver) or selected_flights_json:
+                return result, None
+            booking_url = url_resolver(candidate_ids)
+            booking_action = BookingAction(booking_url) if isinstance(booking_url, str) else None
     except (RuntimeError, ValueError):
-        return result
-    if not isinstance(booking_url, str):
-        return result
-    selected = replace(result.selected, booking_url=booking_url)
+        return result, None
+    if not isinstance(booking_action, BookingAction):
+        return result, None
+    selected = replace(result.selected, booking_url=booking_action.url)
     itineraries = tuple(
         selected if itinerary.id == selected.id else itinerary for itinerary in result.itineraries
     )
-    return replace(result, itineraries=itineraries, selected=selected)
+    return replace(result, itineraries=itineraries, selected=selected), booking_action
+
+
+def _selected_flights_json(itinerary: Any) -> str | None:
+    if itinerary.inbound is None:
+        return None
+    if not itinerary.outbound.segments or not itinerary.inbound.segments:
+        return None
+
+    def serialize(segments: object) -> list[dict[str, str]]:
+        return [
+            {
+                "flight_number": "".join(segment.flight_number.split()),
+                "departure_id": segment.origin,
+                "arrival_id": segment.destination,
+                "date": segment.departure.date().isoformat(),
+            }
+            for segment in segments
+        ]
+
+    return json.dumps(
+        {
+            "outbound": serialize(itinerary.outbound.segments),
+            "return": serialize(itinerary.inbound.segments),
+        },
+        separators=(",", ":"),
+    )
 
 
 def continue_session(
@@ -126,6 +167,11 @@ def continue_session(
     if stage_callback is not None:
         session.stage_callback = stage_callback
     result = application_session.agent.continue_session(session, prompt)
+    result, application_session.booking_action = _attach_booking_action(
+        result,
+        application_session.agent.search,
+        stage_callback,
+    )
     payload = result_to_payload(
         result,
         session.request,
@@ -248,4 +294,14 @@ def _flight_option_to_dict(option: Any) -> dict[str, Any]:
     values = asdict(option)
     values["departure"] = option.departure.isoformat()
     values["arrival"] = option.arrival.isoformat()
+    values["segments"] = [
+        {
+            "flight_number": segment.flight_number,
+            "origin": segment.origin,
+            "destination": segment.destination,
+            "departure": segment.departure.isoformat(),
+            "arrival": segment.arrival.isoformat(),
+        }
+        for segment in option.segments
+    ]
     return values

@@ -1,4 +1,5 @@
 import unittest
+import json
 from datetime import date, datetime
 
 from airgem.core import FlightRequest
@@ -7,13 +8,16 @@ from airgem.search.serpapi import _request_url
 
 
 def request_data(params: dict[str, str]) -> dict:
-    if "booking_token" in params:
+    if "booking_token" in params or "selected_flights_json" in params:
         return {
             "booking_options": [
                 {
                     "together": {
                         "book_with": "Test Air",
-                        "booking_request": {"url": "https://booking.example/flight"},
+                        "booking_request": {
+                            "url": "https://booking.example/flight",
+                            "post_data": "flight=TA+100&currency=BRL",
+                        },
                     }
                 }
             ]
@@ -30,6 +34,7 @@ def request_data(params: dict[str, str]) -> dict:
                         "departure_airport": {"id": departure_id, "time": f"{outbound_date} 08:00"},
                         "arrival_airport": {"id": arrival_id, "time": f"{outbound_date} 10:00"},
                         "airline": "Test Air",
+                        "flight_number": "TA 100",
                     }
                 ],
                 "price": 100,
@@ -66,6 +71,7 @@ class TestSerpApi(unittest.TestCase):
         self.assertEqual(option.airline, "Test Air")
         self.assertEqual(option.duration_minutes, 120)
         self.assertEqual(option.candidate_id, "candidate-0")
+        self.assertEqual(option.segments[0].flight_number, "TA 100")
         self.assertEqual(calls[0]["type"], "2")
         self.assertEqual(calls[0]["sort_by"], "2")
         self.assertEqual(calls[0]["deep_search"], "true")
@@ -103,6 +109,51 @@ class TestSerpApi(unittest.TestCase):
 
         self.assertEqual(url, "https://booking.example/flight")
         self.assertEqual(calls[1]["booking_token"], "booking-2026-11-06")
+
+    def test_resolves_booking_action_with_provider_post_data(self) -> None:
+        provider = SerpApiProvider(api_key="test", fetch_json=lambda params: request_data(params))
+        request = FlightRequest("GRU", "POA", date(2026, 11, 6), sort_by_price=True)
+
+        result = provider.search(request)
+        action = provider.resolve_booking_action((result.outbound[0].candidate_id or "",))
+
+        self.assertIsNotNone(action)
+        assert action is not None
+        self.assertEqual(action.url, "https://booking.example/flight")
+        self.assertEqual(action.post_data, "flight=TA+100&currency=BRL")
+
+    def test_resolves_round_trip_booking_url_from_selected_flights_json(self) -> None:
+        calls: list[dict[str, str]] = []
+        provider = SerpApiProvider(
+            api_key="test",
+            fetch_json=lambda params: calls.append(params) or request_data(params),
+        )
+        selected = {
+            "outbound": [
+                {
+                    "flight_number": "TA 100",
+                    "departure_id": "GRU",
+                    "arrival_id": "POA",
+                    "date": "2026-11-06",
+                }
+            ],
+            "return": [
+                {
+                    "flight_number": "TA 101",
+                    "departure_id": "POA",
+                    "arrival_id": "GRU",
+                    "date": "2026-11-08",
+                }
+            ],
+        }
+
+        url = provider.resolve_booking_url(
+            (),
+            selected_flights_json=json.dumps(selected, separators=(",", ":")),
+        )
+
+        self.assertEqual(url, "https://booking.example/flight")
+        self.assertEqual(calls[0]["selected_flights_json"], json.dumps(selected, separators=(",", ":")))
 
     def test_expands_only_selected_round_trip_candidate(self) -> None:
         calls: list[dict[str, str]] = []

@@ -9,18 +9,20 @@ from pathlib import Path
 from typing import Annotated, Literal
 from uuid import uuid4
 from urllib.parse import urlsplit
+from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import File, Form, FastAPI, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from airgem.application import ApplicationSession, continue_session, start_session
 from airgem.llm import OllamaProvider, OpenRouterProvider
-from airgem.search import SerpApiProvider
+from airgem.search import BookingAction, SerpApiProvider
 
 app = FastAPI(title="AirGem")
 _sessions: dict[str, ApplicationSession] = {}
 _jobs: dict[str, "WebJob"] = {}
+_booking_actions: dict[str, BookingAction] = {}
 _job_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="airgem-web")
 _web_dir = Path(__file__).parent
 _index_path = _web_dir / "index.html"
@@ -78,7 +80,7 @@ _JOB_STEPS = (
     ("expanding_return", "Expand return"),
     ("evaluating_return_options", "Evaluate return"),
     ("selecting_return", "Select return"),
-    ("fetching_booking", "Fetch booking link"),
+    ("fetching_booking", "Prepare booking handoff"),
 )
 _STAGE_DETAILS = {
     "queued": (0, "Getting ready…"),
@@ -90,7 +92,7 @@ _STAGE_DETAILS = {
     "expanding_return": (80, "Expanding return options…"),
     "evaluating_return_options": (87, "Evaluating return options…"),
     "selecting_return": (94, "Selecting the best return…"),
-    "fetching_booking": (97, "Fetching a direct booking link…"),
+    "fetching_booking": (97, "Preparing the booking handoff…"),
     "complete": (100, "Results are ready."),
     "error": (100, "AirGem could not complete the search."),
 }
@@ -197,6 +199,35 @@ def ui_message(session_id: str, prompt: Annotated[str, Form(min_length=1)]) -> H
     return HTMLResponse(_job_fragment(job_id))
 
 
+@app.post("/ui/bookings/{booking_id}", response_class=HTMLResponse, include_in_schema=False)
+def ui_booking(booking_id: str) -> Response:
+    action = _booking_actions.get(booking_id)
+    if action is None:
+        raise HTTPException(status_code=404, detail="booking action not found")
+    if not _is_https_url(action.url):
+        return HTMLResponse(_error_fragment("booking provider returned an unsafe URL"), status_code=502)
+    if not action.post_data:
+        return RedirectResponse(action.url, status_code=303)
+
+    try:
+        request = UrlRequest(
+            action.url,
+            data=action.post_data.encode("utf-8"),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "AirGem/1.0",
+            },
+            method="POST",
+        )
+        with urlopen(request, timeout=30) as response:
+            target = response.geturl()
+        if not _is_https_url(target):
+            raise RuntimeError("booking provider returned an unsafe redirect")
+        return RedirectResponse(target, status_code=303)
+    except Exception as error:
+        return HTMLResponse(_error_fragment(f"booking handoff failed: {error}"), status_code=502)
+
+
 def main() -> None:
     import uvicorn
 
@@ -284,13 +315,15 @@ async def _calendar_text(calendar: UploadFile | None) -> str | None:
 
 
 def _workspace_fragment(session_id: str, payload: dict[str, object]) -> str:
+    session = _sessions.get(session_id)
+    booking_action_id = _register_booking_action(session.booking_action) if session and session.booking_action else None
     request = payload["request"]
     assert isinstance(request, dict)
     itineraries = payload["itineraries"]
     assert isinstance(itineraries, list)
     alternatives = set(payload["alternatives"])
     cards = "".join(
-        _itinerary_card(session_id, item, payload, alternatives) for item in itineraries
+        _itinerary_card(session_id, item, payload, alternatives, booking_action_id) for item in itineraries
     )
     deferred = payload["deferred_outbound"]
     assert isinstance(deferred, list)
@@ -298,7 +331,7 @@ def _workspace_fragment(session_id: str, payload: dict[str, object]) -> str:
     if deferred:
         deferred_html = (
             "<h3>Other outbound candidates</h3><div class='cards'>"
-            + "".join(_itinerary_card(session_id, item, payload, set()) for item in deferred)
+            + "".join(_itinerary_card(session_id, item, payload, set(), booking_action_id) for item in deferred)
             + "</div>"
         )
     notes = "".join(f"<li>{_text(note)}</li>" for note in payload["notes"])
@@ -349,6 +382,7 @@ def _itinerary_card(
     item: object,
     payload: dict[str, object],
     alternatives: set[object],
+    booking_action_id: str | None = None,
 ) -> str:
     if not isinstance(item, dict):
         return ""
@@ -368,7 +402,15 @@ def _itinerary_card(
                 f'<input type="hidden" name="prompt" value="{_attr(action.get("prompt", ""))}">'
                 f'<button class="secondary" type="submit">{_text(action.get("label", "Explore"))}</button></form>'
             )
-    booking = _booking_link(item.get("booking_url")) if item_id == selected_id else ""
+    booking = ""
+    if item_id == selected_id:
+        if booking_action_id is not None:
+            booking = (
+                f'<form action="/ui/bookings/{_attr(booking_action_id)}" method="post" target="_blank">'
+                '<button class="booking-button" type="submit">Open booking ↗</button></form>'
+            )
+        else:
+            booking = _booking_link(item.get("booking_url"))
     action_html = "".join(actions) + booking
     outbound = item.get("outbound")
     inbound = item.get("inbound")
@@ -454,6 +496,19 @@ def _booking_link(value: object) -> str:
         f'<a class="booking-link" href="{_attr(value)}" target="_blank" '
         'rel="noopener noreferrer">Open booking ↗</a>'
     )
+
+
+def _register_booking_action(action: BookingAction) -> str:
+    booking_id = uuid4().hex
+    _booking_actions[booking_id] = action
+    return booking_id
+
+
+def _is_https_url(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    parts = urlsplit(value)
+    return parts.scheme == "https" and bool(parts.netloc)
 
 
 def _error_fragment(message: str) -> str:
