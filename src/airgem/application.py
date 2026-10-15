@@ -232,6 +232,7 @@ def result_to_payload(
         "alternatives": [item.id for item in result.alternatives],
         "deferred_outbound": [itinerary_to_dict(item) for item in result.deferred_outbound],
         "rationale": _rationale(result, request, busy_intervals, buffer_minutes),
+        "selection_reason": result.reason,
         "agent_message": _agent_message(result),
         "agent_state": result.state.value,
         **_search_result_to_dict(result.search_result),
@@ -273,6 +274,8 @@ def _agent_message(result: AgentResult) -> str:
     if result.selected is None:
         return "No itinerary selected."
     message = f"Selected {result.selected.id}."
+    if result.reason:
+        message += f" {result.reason}"
     if result.alternatives:
         message += f" {len(result.alternatives)} evaluated alternative(s) available."
     if result.deferred_outbound:

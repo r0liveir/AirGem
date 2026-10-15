@@ -73,6 +73,7 @@ Current functionality includes:
 - Selected round-trip outbound expansion before return selection.
 - Local **Ollama Gemma** or **OpenRouter Gemma** providers.
 - A bounded state-machine agent with deterministic fallback behavior.
+- Grounded Gemma selection reasons based on verified candidate facts.
 - A small local FastAPI web UI with in-memory follow-up sessions.
 - Booking handoff actions for selected itineraries when SerpAPI provides them,
   including provider POST data when required.
@@ -343,7 +344,6 @@ Near-term work:
 - Mark the selected itinerary in human-readable CLI output.
 - Reduce duplicate/tied candidate display.
 - Improve timezone normalization for calendar and airport-local times.
-- Add final Gemma trade-off synthesis for the Pareto set.
 - Add retry/backoff and clearer provider error handling.
 
 Later work:
@@ -352,7 +352,7 @@ Later work:
 - Flexible-date search.
 - Multiple-airport searches.
 - Additional search providers.
-- Hosted deployment and Sentry observability.
+- Hosted deployment.
 
 Google Calendar is intentionally not required for the first slice. An API
 integration would add OAuth, scopes, token storage, refresh behavior, and more

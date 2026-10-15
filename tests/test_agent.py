@@ -94,7 +94,12 @@ class TestFlightAgent(unittest.TestCase):
 
     def test_one_way_selects_candidate_without_expansion(self) -> None:
         agent = FlightAgent(
-            FakeLLM(['{"action":"select_candidate","candidate_id":"candidate-1"}']),
+            FakeLLM(
+                [
+                    '{"action":"select_candidate","candidate_id":"candidate-1",'
+                    '"reason":"It matches the requested faster trip."}'
+                ]
+            ),
             OneWaySearch(),
         )
 
@@ -102,6 +107,7 @@ class TestFlightAgent(unittest.TestCase):
 
         self.assertEqual(result.state, AgentState.COMPLETE)
         self.assertEqual(result.selected.id, "candidate-1")
+        self.assertEqual(result.reason, "It matches the requested faster trip.")
         self.assertEqual(tuple(item.id for item in result.alternatives), ("candidate-0",))
         self.assertEqual(result.deferred_outbound, ())
 

@@ -40,6 +40,7 @@ class AgentSession:
     state: AgentState = AgentState.SEARCHING
     turns: int = 0
     selection_notes: list[str] = field(default_factory=list)
+    selection_reason: str | None = None
     expanded_outbound_ids: set[str] = field(default_factory=set)
     stage_callback: Callable[[str], None] | None = None
 
@@ -50,6 +51,7 @@ class AgentResult:
     search_result: FlightSearchResult
     itineraries: tuple[Itinerary, ...]
     selected: Itinerary | None
+    reason: str | None = None
     notes: tuple[str, ...] = ()
     alternatives: tuple[Itinerary, ...] = ()
     deferred_outbound: tuple[Itinerary, ...] = ()
@@ -203,6 +205,7 @@ class FlightAgent:
             search_result=session.search_result,
             itineraries=session.expanded_itineraries,
             selected=session.selected,
+            reason=session.selection_reason,
             notes=tuple(session.selection_notes),
             alternatives=alternatives,
             deferred_outbound=session.deferred_outbound,
@@ -217,6 +220,7 @@ class FlightAgent:
     ) -> Itinerary:
         if len(candidates) == 1:
             logger.debug("single candidate id=%s; skip LLM selection", candidates[0].id)
+            session.selection_reason = "It is the only feasible option after applying your constraints."
             return candidates[0]
         if session.turns >= self.max_turns:
             return self._fallback(session, candidates, "Agent turn budget exhausted; used Pareto fallback.")
@@ -228,10 +232,12 @@ class FlightAgent:
             system=(
                 "You are a flight candidate selector. "
                 "Choose exactly one candidate from an allowed list. "
-                "Return one JSON object only. No markdown. No explanation. No extra keys. "
+                "Return one JSON object only. No markdown. No extra keys. "
                 f'The action value must be exactly "{action}". '
                 "The candidate_id value must be copied exactly from the allowed IDs. "
-                "Never return an index, price, airline, or invented ID. "
+                "The reason must be one short sentence grounded only in the user request "
+                "and supplied candidate details; do not invent preferences or facts. "
+                "Never use an index, price, airline, or invented value as the candidate_id. "
                 "Prefer the user's stated priorities; otherwise choose lowest price, "
                 "then fewest stops, then shortest duration."
             ),
@@ -246,13 +252,20 @@ class FlightAgent:
                     for candidate in candidates
                 )
                 + "\nReturn exactly this shape, replacing candidate-0 with one allowed ID:\n"
-                + json.dumps({"action": action, "candidate_id": candidate_ids[0]})
+                + json.dumps(
+                    {
+                        "action": action,
+                        "candidate_id": candidate_ids[0],
+                        "reason": "It best matches the user's stated priorities.",
+                    }
+                )
             ),
         )
-        candidate_id = _action_candidate_id(response, action)
+        candidate_id, reason = _action_choice(response, action)
         logger.debug("LLM action=%s candidate_id=%s", action, candidate_id or "<invalid>")
         for candidate in candidates:
             if candidate.id == candidate_id:
+                session.selection_reason = reason
                 logger.debug("selected candidate id=%s", candidate.id)
                 return candidate
         return self._fallback(session, candidates, "LLM chose invalid candidate; used Pareto fallback.")
@@ -260,6 +273,7 @@ class FlightAgent:
     def _fallback(self, session: AgentSession, candidates: tuple[Itinerary, ...], note: str) -> Itinerary:
         if note not in session.selection_notes:
             session.selection_notes.append(note)
+        session.selection_reason = "It leads the deterministic ranking for price, stops, and duration."
         logger.debug("fallback candidate id=%s reason=%s", candidates[0].id, note)
         return candidates[0]
 
@@ -323,15 +337,17 @@ def _merge_unique(
     return tuple(merged)
 
 
-def _action_candidate_id(response: str, expected_action: str) -> str | None:
+def _action_choice(response: str, expected_action: str) -> tuple[str | None, str | None]:
     try:
         value = response.strip()
         fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", value, re.DOTALL | re.IGNORECASE)
         payload = json.loads(fenced.group(1) if fenced else value)
     except (json.JSONDecodeError, TypeError):
-        return None
+        return None, None
     if not isinstance(payload, dict):
-        return None
+        return None, None
     if payload.get("action") != expected_action or not isinstance(payload.get("candidate_id"), str):
-        return None
-    return payload["candidate_id"]
+        return None, None
+    reason = payload.get("reason")
+    reason = reason.strip() if isinstance(reason, str) and len(reason.strip()) <= 500 else None
+    return payload["candidate_id"], reason
