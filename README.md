@@ -65,6 +65,10 @@ bounded Gemma candidate selection
 human-readable or JSON itinerary output
 ```
 
+### System flow
+
+![AirGem system flow](assets/airgem.png)
+
 Current functionality includes:
 
 - One-way and native round-trip searches.
