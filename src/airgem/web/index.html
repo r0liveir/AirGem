@@ -97,7 +97,7 @@
     .search-panel { background: var(--surface-floating); border-color: color-mix(in srgb, var(--blue) 22%, var(--line)); overflow: hidden; position: relative; }
     .search-panel::before { background: linear-gradient(90deg, var(--blue), var(--cyan)); content: ""; height: .25rem; inset: 0 0 auto; position: absolute; }
     .panel-kicker { color: var(--muted); font-size: .78rem; font-weight: 750; letter-spacing: .08em; margin-bottom: 1rem; text-transform: uppercase; }
-    .search-grid { display: grid; gap: .9rem; grid-template-columns: 12rem minmax(0, 1fr) auto; align-items: end; }
+    .search-grid { display: grid; gap: .9rem; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
     label { color: var(--muted); display: block; font-size: .85rem; margin-bottom: .25rem; }
     textarea, input, select { background: var(--surface-solid); border: 1px solid var(--line); border-radius: .65rem; color: var(--ink); font: inherit; outline: none; padding: .7rem .75rem; transition: border-color .2s ease, box-shadow .2s ease, background-color .25s ease; width: 100%; }
     textarea:focus, input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 .22rem color-mix(in srgb, var(--blue) 17%, transparent); }
@@ -211,13 +211,6 @@
       <form class="search-form" hx-post="/ui/search" hx-target="#workspace" hx-swap="innerHTML" hx-encoding="multipart/form-data" hx-indicator="#searching">
         <div class="search-grid">
           <div>
-            <label for="provider">LLM provider</label>
-            <select id="provider" name="provider">
-              <option value="ollama">Ollama</option>
-              <option value="openrouter">OpenRouter</option>
-            </select>
-          </div>
-          <div>
             <label for="prompt">What are you looking for?</label>
             <textarea id="prompt" name="prompt" required maxlength="1000" placeholder="Find cheap flights from GRU to POA on 2027-01-01, returning 2027-01-08"></textarea>
           </div>
@@ -316,6 +309,10 @@
 
             if ((payload.status === "complete" || payload.status === "error") && workspace && payload.html) {
               workspace.innerHTML = payload.html;
+              if (payload.status === "complete") {
+                const key = document.querySelector("#serpapi_key");
+                if (key) key.value = "";
+              }
               return;
             }
           } catch (_error) {
@@ -330,12 +327,6 @@
     }
 
     document.addEventListener("htmx:afterSwap", watchAgentJobs);
-    document.addEventListener("htmx:afterRequest", (event) => {
-      if (event.detail.elt.matches?.(".search-form")) {
-        const key = document.querySelector("#serpapi_key");
-        if (key) key.value = "";
-      }
-    });
     watchAgentJobs();
   </script>
 </body>

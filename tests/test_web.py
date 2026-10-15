@@ -106,8 +106,29 @@ class TestDemoRateLimit(unittest.TestCase):
 
         self.assertNotIn("private-serpapi-key", message)
 
+    def test_public_errors_identify_the_failed_provider_stage(self) -> None:
+        self.assertIn(
+            "OpenRouter",
+            _public_error(RuntimeError("private detail"), stage="parsing_request"),
+        )
+        self.assertIn(
+            "SerpApi",
+            _public_error(RuntimeError("private detail"), stage="searching"),
+        )
+
 
 class TestWebPage(unittest.TestCase):
+    def test_web_uses_server_configured_llm_provider(self) -> None:
+        page = _index_path.read_text(encoding="utf-8")
+
+        self.assertNotIn('name="provider"', page)
+
+    def test_serpapi_key_is_cleared_only_after_success(self) -> None:
+        page = _index_path.read_text(encoding="utf-8")
+
+        self.assertIn('payload.status === "complete"', page)
+        self.assertNotIn('document.addEventListener("htmx:afterRequest"', page)
+
     def test_about_section_explains_project_and_demo_protections(self) -> None:
         page = _index_path.read_text(encoding="utf-8")
 

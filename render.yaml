@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: airgem
+    runtime: python
+    plan: free
+    buildCommand: uv sync --locked --no-dev
+    startCommand: uv run --no-sync uvicorn airgem.web:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: LLM_PROVIDER
+        value: openrouter
+      - key: OPENROUTER_MODEL
+        value: google/gemma-4-26b-a4b-it
+      - key: OPENROUTER_API_KEY
+        sync: false

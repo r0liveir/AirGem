@@ -1,5 +1,10 @@
 # ✈️AirGem
 
+[![Live Demo](https://img.shields.io/badge/live_demo-airgem.onrender.com-8f7cff?logo=render&logoColor=white)](https://airgem.onrender.com)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-6f63d9)](LICENSE)
+
 > A privacy-first flight-search copilot that finds flights around your real
 > calendar.
 
@@ -63,22 +68,16 @@ human-readable or JSON itinerary output
 Current functionality includes:
 
 - One-way and native round-trip searches.
-- **Exact** departure and return dates (flexible dates is still WIP)
+- **Exact** departure and return dates
 - USD as the default currency (override it in the prompt by asking for a preferred currency).
 - SerpAPI deep search sorted by price.
 - Local `.ics` calendar imports (via `icalendar`).
 - Timed, all-day, cancelled, transparent, and recurring calendar events (via `recurring-ical-events`).
-- Configurable travel buffer before departure and after arrival (taking into account commute time).
+- Configurable travel buffer (commute time).
 - Calendar filtering before Pareto filtering.
 - Selected round-trip outbound expansion before return selection.
 - Local **Ollama Gemma** or **OpenRouter Gemma** providers.
 - A bounded state-machine agent with deterministic fallback behavior.
-- Grounded Gemma selection reasons based on verified candidate facts.
-- A small local FastAPI web UI with in-memory follow-up sessions.
-- Booking handoff actions for selected itineraries when SerpAPI provides them,
-  including provider POST data when required.
-- Offline unit tests for parsing, search adapters, calendar handling, itinerary
-  construction, Pareto filtering, and agent behavior.
 
 ## Quick start
 
@@ -196,13 +195,24 @@ the flight data, calendar upload, and session state stay in the FastAPI
 process. Web searches ask for a SerpAPI key, retain it only with the in-memory
 session for up to 30 minutes, and clear the browser field after submission.
 
-The hosted-demo protections allow 10 search or follow-up operations per client
-IP per hour and 100 operations globally per hour. Prompts, follow-ups, and
-calendar uploads are size-limited. Jobs, sessions, and booking actions are
-bound to the originating IP, become inaccessible after expiry, and are purged
-on subsequent traffic or process restart; no API key is written to disk,
-cookies, HTML, or application logs. On a hosted deployment, use a limited
-calendar export because the uploaded events pass through that server's memory.
+### Deploy the demo on Render
+
+The repository includes a `render.yaml` Blueprint for one free web service.
+Push the repository to GitHub, GitLab, or Bitbucket, then in Render choose
+**New → Blueprint** and connect the repository. Render will ask for
+`OPENROUTER_API_KEY`; paste a dedicated OpenRouter key with a spending limit.
+The Blueprint fixes the hosted provider to OpenRouter and uses the paid Gemma
+endpoint configured by `OPENROUTER_MODEL`; the key's spending limit bounds the
+demo's inference cost.
+
+Do not add a server-side `SERPAPI_API_KEY` for the public demo. Each visitor
+supplies a transient key through the form. After the first deploy, open the
+generated `onrender.com` URL and run one search to verify OpenRouter, SerpAPI,
+progress updates, and booking handoff together.
+
+Render's free service can spin down after inactivity, so the first request
+after an idle period can take about a minute. In-memory AirGem sessions are
+discarded whenever the service sleeps, restarts, or redeploys.
 
 ## What can the user ask for?
 
@@ -345,28 +355,6 @@ PYTHONPATH=src uv run python -m unittest discover -s tests -v
 
 The tests do not call Ollama, OpenRouter, or SerpAPI. Provider responses are
 captured with fakes so the deterministic core can be tested without API costs.
-
-## Roadmap
-
-Near-term work:
-
-- Mark the selected itinerary in human-readable CLI output.
-- Reduce duplicate/tied candidate display.
-- Improve timezone normalization for calendar and airport-local times.
-- Add retry/backoff and clearer provider error handling.
-
-Later work:
-
-- Google Calendar API integration as an optional adapter.
-- Flexible-date search.
-- Multiple-airport searches.
-- Additional search providers.
-- Hosted deployment.
-
-Google Calendar is intentionally not required for the first slice. An API
-integration would add OAuth, scopes, token storage, refresh behavior, and more
-privacy considerations. It can later produce the same local busy-interval
-objects used by the optimizer.
 
 ## License
 

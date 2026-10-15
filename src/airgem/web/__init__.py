@@ -150,6 +150,11 @@ def index() -> RedirectResponse:
     return RedirectResponse(url="/ui/")
 
 
+@app.get("/health", include_in_schema=False)
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @app.get("/ui", include_in_schema=False)
 def ui_redirect() -> RedirectResponse:
     return RedirectResponse(url="/ui/")
@@ -337,7 +342,7 @@ def _run_search_job(
         _store_session(session_id, job.owner, session)
         job.complete(_workspace_fragment(session_id, result, job.owner))
     except Exception as error:
-        job.fail(_public_error(error))
+        job.fail(_public_error(error, stage=str(job.snapshot()["stage"])))
 
 
 def _run_message_job(
@@ -353,7 +358,7 @@ def _run_message_job(
         result = continue_session(session, prompt, stage_callback=job.update_stage)
         job.complete(_workspace_fragment(session_id, result, owner))
     except Exception as error:
-        job.fail(_public_error(error))
+        job.fail(_public_error(error, stage=str(job.snapshot()["stage"])))
 
 
 def _job_fragment(job_id: str) -> str:
@@ -650,11 +655,19 @@ def _enforce_rate_limit(owner: str, now: float | None = None) -> None:
         _global_rate_events.append(current)
 
 
-def _public_error(error: Exception) -> str:
+def _public_error(error: Exception, *, stage: str | None = None) -> str:
     message = str(error)
     if message.startswith("missing required flight fields:"):
         return message
-    return "Search failed. Check your request and SerpApi key, then try again."
+    if stage == "parsing_request" or message.startswith(("LLM request failed", "OPENROUTER_")):
+        return "The hosted AI provider failed. Check the OpenRouter configuration or try again shortly."
+    if stage in {
+        "searching",
+        "expanding_return",
+        "fetching_booking",
+    } or message.startswith("SerpApi"):
+        return "Flight search failed. Check your SerpApi key and available credits, then try again."
+    return "Search failed while evaluating the options. Please try again shortly."
 
 
 def _is_https_url(value: object) -> bool:
